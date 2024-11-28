@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import "../styles/Login.css";
 
 const Login = () => {
   const [formData, setFormData] = useState({
@@ -33,24 +34,36 @@ const Login = () => {
   };
 
   return (
-    <div>
-      <h1>Login</h1>
-      <input
-        type="email"
-        name="email"
-        placeholder="Email"
-        value={formData.email}
-        onChange={handleChange}
-      />
-      <input
-        type="password"
-        name="password"
-        placeholder="Password"
-        value={formData.password}
-        onChange={handleChange}
-      />
-      <button onClick={handleLogin}>Login</button>
-      <p>{message}</p>
+    <div className="login-container">
+      <div className="login-box">
+        <div className="login-header">
+          <h2>실시간으로 협업</h2>
+          <h1>LiveCodeSpace</h1>
+        </div>
+        <div className="login-form">
+          <input
+            type="email"
+            name="email"
+            placeholder="이메일 주소를 입력하세요."
+            value={formData.email}
+            onChange={handleChange}
+          />
+          <input
+            type="password"
+            name="password"
+            placeholder="비밀번호"
+            value={formData.password}
+            onChange={handleChange}
+          />
+          <button className="login-btn" onClick={handleLogin}>
+            로그인
+          </button>
+          <p>{message}</p>
+        </div>
+        <div className="signup-link">
+          <p>계정이 없으신가요? <a href="/register">회원가입</a></p>
+        </div>
+      </div>
     </div>
   );
 };
