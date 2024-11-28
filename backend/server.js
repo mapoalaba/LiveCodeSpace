@@ -1,26 +1,31 @@
+require("dotenv").config(); // 환경 변수 설정
 const express = require("express");
+const cors = require("cors");
 const bodyParser = require("body-parser");
-require("dotenv").config();
-const WebSocket = require("ws");
-const wss = new WebSocket.Server({ port: 8080 });
-
-wss.on("connection", (ws) => {
-  ws.on("message", (message) => {
-    // 실시간 데이터 브로드캐스트
-    wss.clients.forEach((client) => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
-    });
-  });
-});
+const authRoutes = require("./routes/authRoutes");
 
 const app = express();
-app.use(bodyParser.json());
+const PORT = process.env.PORT || 5001;
 
+// 미들웨어 설정
+app.use(cors()); // CORS 활성화
+app.use(bodyParser.json()); // JSON 요청 파싱
+app.use(bodyParser.urlencoded({ extended: true })); // URL-encoded 요청 파싱
+
+// 기본 라우트
 app.get("/", (req, res) => {
-  res.send("Backend is running on Mac!");
+  res.send("LiveCodeSpace Backend API is running.");
 });
 
-const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+// 인증 관련 라우트
+app.use("/api/auth", authRoutes);
+
+// 서버 시작
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
+});
+
+app.use((err, req, res, next) => {
+  console.error("Unhandled error:", err.message);
+  res.status(500).json({ error: "An unexpected error occurred." });
+});
