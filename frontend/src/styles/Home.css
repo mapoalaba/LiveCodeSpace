@@ -78,12 +78,12 @@
 }
 
 
-.home-header-margin {
+.home-header-margin-left {
   text-align: left;
   margin-top: 200px;
 }
 
-.home-header-margin h1 {
+.home-header-margin-left h1 {
   font: var(--typography-font);
   font-variation-settings: var(--typography-font-variation-settings);
   font-size: 60px;
@@ -97,9 +97,17 @@
   text-wrap: balance;
 }
 
-.home-header-margin p {
+.home-header-margin-left p {
   font-size: 1.2rem;
   color: #666;
+}
+
+.home-header-margin-right {
+  flex: 1;
+  text-align: right;
+  color: #888;
+  font-size: 0.9rem;
+  line-height: 1.5;
 }
 
 .home-header-with-image {

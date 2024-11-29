@@ -2,15 +2,15 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.4rem 3rem;
-  background-color: #ffffff; /* 배경색 추가 */
-  color: #000000; /* 텍스트 색상 */
+  padding: 0.5rem 3rem;
+  background-color: #ffffff;
+  color: #000000;
   font-family: 'Arial', sans-serif;
   box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
-  position: fixed; /* 헤더를 고정 */
-  top: 0; /* 화면 상단에 배치 */
-  width: 100%; /* 화면 너비에 맞추기 */
-  z-index: 1000; /* 다른 요소 위에 표시되도록 */
+  position: fixed;
+  top: 0;
+  width: 100%;
+  z-index: 1000;
 }
 
 .header-left h1 {
