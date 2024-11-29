@@ -1,0 +1,80 @@
+.login-container {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  height: 100vh;
+  background-color: #f7f8fa;
+}
+
+.login-box {
+  width: 450px;
+  padding: 40px;
+  border-radius: 8px;
+}
+
+.login-header h2 {
+  font-size: 30px; /* 크게 만들기 */
+  font-weight: bold; /* 두껍게 만들기 */
+  text-align: left;
+  margin-bottom: 10px;
+  color: rgba(0, 0, 0, 1); /* 기본 색상 */
+}
+
+.login-header h1 {
+  font-size: 22px;
+  text-align: left;
+  margin-bottom: 10px;
+  font-weight: normal; /* 글씨 두께를 보통으로 설정 */
+  color: rgba(0, 0, 0, 0.4); /* 투명도 추가 */
+}
+
+.login-header p {
+  text-align: center;
+  color: #555;
+  font-size: 14px;
+}
+
+.login-form input {
+  width: 100%;
+  padding: 12px;
+  margin: 10px 0;
+  border: 1px solid #ccc;
+  border-radius: 4px;
+  font-size: 16px;
+}
+
+.login-form input:focus {
+  outline: none;
+  border-color: #81c9f2;
+}
+
+.login-form button {
+  width: 100%;
+  padding: 12px;
+  background-color: #0061f2;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 16px;
+  cursor: pointer;
+  margin-top: 10px;
+}
+
+.login-form button:hover {
+  background-color: #0051d4;
+}
+
+.signup-link {
+  text-align: center;
+  margin-top: 15px;
+  font-size: 14px;
+}
+
+.signup-link a {
+  color: #0061f2;
+  text-decoration: none;
+}
+
+.signup-link a:hover {
+  text-decoration: underline;
+}
