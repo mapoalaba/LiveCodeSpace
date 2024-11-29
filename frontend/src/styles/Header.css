@@ -1,0 +1,46 @@
+.header-container {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.4rem 3rem;
+  background-color: #ffffff; /* 배경색 추가 */
+  color: #000000; /* 텍스트 색상 */
+  font-family: 'Arial', sans-serif;
+  box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+  position: fixed; /* 헤더를 고정 */
+  top: 0; /* 화면 상단에 배치 */
+  width: 100%; /* 화면 너비에 맞추기 */
+  z-index: 1000; /* 다른 요소 위에 표시되도록 */
+}
+
+.header-left h1 {
+  font-size: 1.8rem;
+  font-weight: bold;
+  margin: 0;
+  letter-spacing: -0.02em;
+}
+
+.header-right .header-login-button {
+  padding: 0.7rem 1.5rem;
+  background-color: #84888b;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  font-size: 1rem;
+  cursor: pointer;
+  transition: background-color 0.3s;
+}
+
+.header-right .header-login-button:hover {
+  background-color: #5a5959;
+}
+
+.header-logo {
+  cursor: pointer;
+  text-decoration: none;
+  color: inherit;
+}
+
+.header-logo:hover {
+  text-decoration: underline;
+}
