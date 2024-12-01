@@ -1,0 +1,154 @@
+.home-container {
+  font-family: 'Arial', sans-serif;
+  padding: 100px 250px 20px;
+  min-width: 1300px;
+}
+
+.home-header {
+  text-align: left;
+}
+
+.home-header h1 {
+  font: var(--typography-font);
+  font-variation-settings: var(--typography-font-variation-settings);
+  font-size: 76.5px;
+  color: var(--black-800, #1a1a1a);
+  font-style: normal;
+  font-weight: 605;
+  line-height: 95%;
+  letter-spacing: -.04em;
+  margin: 0;
+  padding: 0;
+  text-wrap: balance;
+}
+
+.home-header p {
+  font-size: 1.2rem;
+  color: #666;
+}
+
+.home-actions {
+  display: flex;
+  align-items: center;
+  margin-top: 20px;
+}
+
+.home-primary-button {
+  padding: 10px 20px;
+  background-color: #007bff;
+  color: white;
+  border: none;
+  border-radius: 5px;
+  cursor: pointer;
+  font-size: 1rem;
+}
+
+.home-primary-button:hover {
+  background-color: #0056b3;
+}
+
+.home-partners {
+  margin-top: 40px;
+}
+
+.home-partners p {
+  font-size: 1rem;
+  color: rgba(0, 0, 0, 0.5); /* 텍스트 투명도 추가 */
+}
+
+.home-partner-logos {
+  display: flex;
+  gap: 10px;
+}
+
+.home-partner-logos img {
+  width: 150px;
+  height: auto;
+}
+
+.home-large-image-space {
+  width: 100%;
+  height: 700px;
+  margin-top: 20px;
+  border: 1px dashed #ccc;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #aaa;
+}
+
+
+.home-header-margin-left {
+  text-align: left;
+  margin-top: 200px;
+}
+
+.home-header-margin-left h1 {
+  font: var(--typography-font);
+  font-variation-settings: var(--typography-font-variation-settings);
+  font-size: 60px;
+  color: var(--black-800, #1a1a1a);
+  font-style: normal;
+  font-weight: 550;
+  line-height: 100%;
+  letter-spacing: -.04em;
+  margin: 0;
+  padding: 0;
+  text-wrap: balance;
+}
+
+.home-header-margin-left p {
+  font-size: 1.2rem;
+  color: #666;
+}
+
+.home-header-margin-right {
+  flex: 1;
+  text-align: right;
+  color: #888;
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+.home-header-with-image {
+  display: flex;
+  align-items: center;
+  justify-content: space-between; /* 텍스트와 이미지를 양쪽에 배치 */
+  margin-bottom: 50px; /* 여백 추가 */
+}
+
+.home-header {
+  flex: 1; /* 텍스트 영역의 크기를 조절 */
+  margin-right: 30px; /* 텍스트와 이미지 사이 간격 */
+}
+
+.home-header h1 {
+  font-size: 76.5px;
+  font-weight: 605;
+  line-height: 95%;
+  letter-spacing: -0.04em;
+  margin: 0 0 20px 0;
+}
+
+.home-header p {
+  font-size: 1.2rem;
+  color: #666;
+  margin-bottom: 20px;
+}
+
+.home-header-image {
+  flex: 1; /* 이미지 영역의 크기를 조절 */
+  text-align: center;
+}
+
+.home-header-image img {
+  max-width: 100%; /* 이미지의 크기를 컨테이너에 맞춤 */
+  max-height: 400px; /* 최대 높이 지정 */
+  object-fit: cover; /* 이미지가 잘리지 않게 조정 */
+  border-radius: 10px; /* 이미지 모서리를 둥글게 */
+}
+
+.home-footer {
+  width: 100%;
+  height: 200px;
+}

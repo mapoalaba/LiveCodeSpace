@@ -1,5 +1,3 @@
-// 홈 페이지
-
 import React from 'react';
 import '../styles/Home.css';
 import Header from './Header.js';
