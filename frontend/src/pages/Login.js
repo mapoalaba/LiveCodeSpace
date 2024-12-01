@@ -40,24 +40,24 @@ const Login = ({ onLogin }) => {
             <h1>LiveCodeSpace</h1>
           </div>
           <div className="login-form">
-            <input
-              type="email"
-              name="email"
-              placeholder="이메일 주소를 입력하세요."
-              value={formData.email}
-              onChange={handleChange}
-            />
-            <input
-              type="password"
-              name="password"
-              placeholder="비밀번호"
-              value={formData.password}
-              onChange={handleChange}
-            />
+          <input
+            type="email"
+            name="email"
+            placeholder="이메일 주소를 입력하세요."
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
+          <input
+            type="password"
+            name="password"
+            placeholder="비밀번호"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />  
             <button className="login-btn" onClick={handleLogin}>
               로그인
             </button>
-            <p>{message}</p>
+            {error && <p>{error}</p>}
           </div>
           <div className="signup-link">
             <p>계정이 없으신가요? <a href="/register">회원가입</a></p>
