@@ -3,9 +3,9 @@ const express = require("express");
 const cors = require("cors");
 const bodyParser = require("body-parser");
 const authRoutes = require("./routes/authRoutes");
+const projectRoutes = require("./routes/projectRoutes");
 
 const app = express();
-const PORT = process.env.PORT || 5001;
 
 // 미들웨어 설정
 app.use(cors()); // CORS 활성화
@@ -20,12 +20,21 @@ app.get("/", (req, res) => {
 // 인증 관련 라우트
 app.use("/api/auth", authRoutes);
 
-// 서버 시작
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
-
 app.use((err, req, res, next) => {
   console.error("Unhandled error:", err.message);
   res.status(500).json({ error: "An unexpected error occurred." });
+});
+
+app.use((req, res, next) => {
+  console.log(`Received request: ${req.method} ${req.path}`);
+  next();
+});
+
+// 프로젝트
+app.use("/api/projects", projectRoutes);
+
+// 서버 시작
+const PORT = process.env.PORT || 5001;
+app.listen(PORT, '0.0.0.0', () => {
+  console.log(`Server running on port ${PORT}`);
 });
