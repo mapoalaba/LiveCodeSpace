@@ -1,4 +1,5 @@
 import React, { useState } from "react";
+import Header from './Header.js';
 import "../styles/Register.css";
 
 const RegisterAndVerify = () => {
@@ -88,68 +89,71 @@ const RegisterAndVerify = () => {
   };
 
   return (
-    <div className="register-container">
-      <div className="register-box">
-        {step === 1 ? (
-          // Registration form
-          <div className="register-form">
-            <h1>LiveCodeSpace 계정 등록</h1>
-            <input
-              type="text"
-              name="name"
-              placeholder="이름"
-              value={formData.name}
-              onChange={handleChange}
-            />
-            <input
-              type="email"
-              name="email"
-              placeholder="이메일 주소"
-              value={formData.email}
-              onChange={handleChange}
-            />
-            <input
-              type="password"
-              name="password"
-              placeholder="비밀번호"
-              value={formData.password}
-              onChange={handleChange}
-            />
-            <input
-              type="text"
-              name="jobTitle"
-              placeholder="직무"
-              value={formData.jobTitle}
-              onChange={handleChange}
-            />
-            <button onClick={handleRegister}>회원가입</button>
-            <p>{message}</p>
-          </div>
-        ) : (
-          // Email verification form
-          <div className="verify-form">
-            <h1>이메일 확인</h1>
-            <p>확인 코드가 이메일로 전송되었습니다. 아래에 입력해주세요.</p>
-            <input
-              type="email"
-              name="email"
-              placeholder="이메일"
-              value={formData.email}
-              onChange={handleChange}
-              disabled
-            />
-            <input
-              type="text"
-              name="code"
-              placeholder="확인 코드 입력"
-              value={formData.code}
-              onChange={handleChange}
-            />
-            <button onClick={handleVerify}>이메일 인증</button>
-            <button onClick={handleResendCode}>코드 재전송</button>
-            <p>{message}</p>
-          </div>
-        )}
+    <div>
+      <Header />
+      <div className="register-container">
+        <div className="register-box">
+          {step === 1 ? (
+            // Registration form
+            <div className="register-form">
+              <h1>LiveCodeSpace 계정 등록</h1>
+              <input
+                type="text"
+                name="name"
+                placeholder="이름"
+                value={formData.name}
+                onChange={handleChange}
+              />
+              <input
+                type="email"
+                name="email"
+                placeholder="이메일 주소"
+                value={formData.email}
+                onChange={handleChange}
+              />
+              <input
+                type="password"
+                name="password"
+                placeholder="비밀번호"
+                value={formData.password}
+                onChange={handleChange}
+              />
+              <input
+                type="text"
+                name="jobTitle"
+                placeholder="직무"
+                value={formData.jobTitle}
+                onChange={handleChange}
+              />
+              <button onClick={handleRegister}>회원가입</button>
+              <p>{message}</p>
+            </div>
+          ) : (
+            // Email verification form
+            <div className="verify-form">
+              <h1>이메일 확인</h1>
+              <p>확인 코드가 이메일로 전송되었습니다. 아래에 입력해주세요.</p>
+              <input
+                type="email"
+                name="email"
+                placeholder="이메일"
+                value={formData.email}
+                onChange={handleChange}
+                disabled
+              />
+              <input
+                type="text"
+                name="code"
+                placeholder="확인 코드 입력"
+                value={formData.code}
+                onChange={handleChange}
+              />
+              <button onClick={handleVerify}>이메일 인증</button>
+              <button onClick={handleResendCode}>코드 재전송</button>
+              <p>{message}</p>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
