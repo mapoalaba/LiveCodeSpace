@@ -1,9 +1,28 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import '../styles/Home.css';
 import Header from './Header.js';
 import hoseo from '../img/호서.webp';
 
 const Home = () => {
+  useEffect(() => {
+    const observer = new IntersectionObserver(
+      (entries) => {
+        entries.forEach(entry => {
+          if (entry.isIntersecting) {
+            entry.target.classList.add('animate-fade-in');
+          }
+        });
+      },
+      { threshold: 0.1 }
+    );
+
+    document.querySelectorAll('.home-header-margin-left, .home-large-image-space').forEach(
+      (el) => observer.observe(el)
+    );
+
+    return () => observer.disconnect();
+  }, []);
+
   return (
     <div>
       <Header />
@@ -31,7 +50,9 @@ const Home = () => {
       <div className="home-partners">
         <p>LiveCodeSpace를 사용하는 파트너</p>
         <div className="home-partner-logos">
-          <img src={hoseo} alt='hoseoLogo'/>
+          <a href="https://www.shoseo.ac.kr/" target="_blank" rel="noopener noreferrer">
+            <img src={hoseo} alt='hoseoLogo'/>
+          </a>
         </div>
       </div>
 
@@ -106,9 +127,38 @@ const Home = () => {
       <div className="home-large-image-space">
         {/* 큰 이미지를 추가할 수 있는 공간 */}
       </div>
-
+      
       <div className='home-footer'>
-
+        <div className="footer-content">
+          <div className="footer-section">
+            <h3>LiveCodeSpace</h3>
+            <p>실시간 협업 코딩 플랫폼</p>
+            <p>© 2024 LiveCodeSpace. All rights reserved.</p>
+          </div>
+          <div className="footer-section">
+            <h4>제품</h4>
+            <ul>
+              <li>실시간 코딩</li>
+              <li>팀 협업</li>
+              <li>코드 리뷰</li>
+            </ul>
+          </div>
+          <div className="footer-section">
+            <h4>리소스</h4>
+            <ul>
+              <li>도움말</li>
+              <li>문서</li>
+              <li>커뮤니티</li>
+            </ul>
+          </div>
+          <div className="footer-section">
+            <h4>문의</h4>
+            <ul>
+              <li>이메일: contact@livecode.space</li>
+              <li>전화: 041-123-4567</li>
+            </ul>
+          </div>
+        </div>
       </div>
     </div>
     </div>
