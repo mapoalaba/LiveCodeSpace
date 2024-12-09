@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
 import '../styles/Home.css';
-import Header from './Header.js';
 import hoseo from '../img/호서.webp';
 
 const Home = () => {
