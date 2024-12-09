@@ -18,6 +18,7 @@ const {
 const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 const dynamoDB = DynamoDBDocumentClient.from(dynamoClient);
 const s3Client = new S3Client({ region: process.env.AWS_REGION });
+const { v4: uuidv4 } = require('uuid');
 
 // ** 재귀적으로 트리를 생성하는 함수 **
 const buildTree = async (projectId, prefix) => {
@@ -164,37 +165,91 @@ exports.createProject = async (req, res) => {
   const { projectName } = req.body;
   const { userId } = req.user;
 
-  if (!userId || !projectName) {
-    return res.status(400).json({ error: "User ID and Project Name are required." });
-  }
-
-  const newProject = {
-    userId,
-    projectId: `proj-${Date.now()}`,
-    projectName: projectName.trim(),
-    createdAt: new Date().toISOString(),
-    lastEditedAt: new Date().toISOString(),
-  };
-
   try {
-    await dynamoDB.send(new PutCommand({ 
-      TableName: "LiveCodeProjects", 
-      Item: newProject 
-    }));
+    // 입력값 검증
+    if (!userId || !projectName) {
+      return res.status(400).json({
+        error: "필수 입력값이 누락되었습니다.",
+        required: {
+          userId: "사용자 ID가 필요합니다.",
+          projectName: "프로젝트 이름이 필요합니다."
+        }
+      });
+    }
 
-    // 프로젝트 루트 폴더 생성
-    await s3Client.send(new PutObjectCommand({
+    // 프로젝트 객체 생성
+    const timestamp = Date.now().toString();
+    const newProject = {
+      id: uuidv4(), // HASH 키
+      projectId: `proj-${timestamp}`, // GSI HASH 키
+      userId,
+      projectName: projectName.trim(),
+      type: 'project', // 항목 타입 구분용
+      createdAt: new Date().toISOString(),
+      lastEditedAt: new Date().toISOString(),
+    };
+
+    // 생성할 프로젝트 정보 로깅
+    console.log("생성 시도할 프로젝트:", JSON.stringify(newProject, null, 2));
+
+    // 키 존재 여부 검증
+    if (!newProject.id || !newProject.projectId) {
+      throw new Error("필수 키 생성 실패");
+    }
+
+    // DynamoDB에 프로젝트 저장
+    const putCommand = {
+      TableName: "FileSystemItems",
+      Item: newProject,
+      // 동일 id가 없을 경우에만 생성
+      ConditionExpression: "attribute_not_exists(id)"
+    };
+
+    console.log("DynamoDB 명령어:", JSON.stringify(putCommand, null, 2));
+
+    await dynamoDB.send(new PutCommand(putCommand));
+
+    // S3에 프로젝트 루트 폴더 생성
+    const s3Command = {
       Bucket: process.env.S3_BUCKET_NAME,
       Key: `${newProject.projectId}/`,
       Body: ""
-    }));
+    };
 
-    res.status(201).json({ project: newProject });
+    console.log("S3 명령어:", JSON.stringify(s3Command, null, 2));
+
+    await s3Client.send(new PutObjectCommand(s3Command));
+
+    // 초기 프로젝트 구조 생성 성공
+    res.status(201).json({
+      message: "프로젝트가 성공적으로 생성되었습니다.",
+      project: {
+        id: newProject.id,
+        projectId: newProject.projectId,
+        projectName: newProject.projectName,
+        createdAt: newProject.createdAt,
+        lastEditedAt: newProject.lastEditedAt
+      }
+    });
+
   } catch (error) {
-    console.error("Error creating project:", error);
-    res.status(500).json({ error: "Failed to create project." });
+    // 에러 세부 정보 로깅
+    console.error("프로젝트 생성 실패:", {
+      name: error.name,
+      message: error.message,
+      code: error.code,
+      statusCode: error.$metadata?.httpStatusCode,
+      requestId: error.$metadata?.requestId
+    });
+
+    // 클라이언트에 에러 응답
+    res.status(500).json({
+      error: "프로젝트 생성에 실패했습니다.",
+      details: error.message,
+      code: error.code || "UNKNOWN_ERROR"
+    });
   }
-};
+}
 
 // ** 프로젝트 상세 조회 **
 exports.getProjectById = async (req, res) => {
@@ -202,7 +257,7 @@ exports.getProjectById = async (req, res) => {
 
   try {
     const params = {
-      TableName: "LiveCodeProjects",
+      TableName: "FileSystemItems",
       Key: { projectId }
     };
 
@@ -224,7 +279,7 @@ exports.getUserProjects = async (req, res) => {
 
   try {
     const params = {
-      TableName: "LiveCodeProjects",
+      TableName: "FileSystemItems",
       FilterExpression: "userId = :userId",
       ExpressionAttributeValues: { ":userId": userId },
     };
