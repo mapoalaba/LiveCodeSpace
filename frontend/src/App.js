@@ -33,6 +33,23 @@ function App() {
     <Router>
       <div>
         <Header />
+        {<nav style={{ padding: "10px", backgroundColor: "#282c34" }}>
+          <Link to="/" style={{ marginRight: "15px", color: "#61dafb" }}>
+            Home
+          </Link>
+          {!token ? (
+            <>
+              <Link to="/register" style={{ marginRight: "15px", color: "#61dafb" }}>
+                Register
+              </Link>
+              <Link to="/login" style={{ color: "#61dafb" }}>
+                Login
+              </Link>
+            </>
+          ) : (
+            <LogoutButton onLogout={handleLogout} />
+          )}
+        </nav>}
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Navigate to="/home" />} />
