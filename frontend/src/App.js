@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { BrowserRouter as Router, Route, Routes, Navigate } from "react-router-dom";
+import { BrowserRouter as Router, Route, Routes, Navigate, Link, useNavigate } from "react-router-dom";
 import Register from "./pages/Register";
 import Login from "./pages/Login";
 import Home from "./pages/Home";
@@ -8,6 +8,32 @@ import NewProject from "./pages/NewProject";
 import Workspace from "./pages/Workspace";
 import PrivateRoute from "./components/PrivateRoute";
 import Header from "./pages/Header";
+
+// Logout Button Component
+function LogoutButton({ onLogout }) {
+  const navigate = useNavigate();
+
+  const handleLogout = () => {
+    localStorage.removeItem("token"); // Remove JWT token
+    onLogout(); // Update state
+    navigate("/login"); // Redirect to login page
+  };
+
+  return (
+    <button
+      onClick={handleLogout}
+      style={{
+        marginLeft: "15px",
+        backgroundColor: "transparent",
+        border: "none",
+        color: "#61dafb",
+        cursor: "pointer",
+      }}
+    >
+      Logout
+    </button>
+  );
+}
 
 function App() {
   const [token, setToken] = useState(null);
