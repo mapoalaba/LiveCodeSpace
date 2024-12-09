@@ -5,6 +5,7 @@ const http = require("http");
 const { Server } = require("socket.io");
 const bodyParser = require("body-parser");
 const authRoutes = require("./routes/authRoutes");
+const projectRoutes = require("./routes/projectRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -33,11 +34,7 @@ app.get("/", (req, res) => {
 
 // ===== 라우트 등록 =====
 app.use("/api/auth", authRoutes);
-
-// 서버 시작
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-});
+app.use("/api/projects", projectRoutes);
 
 app.use((err, req, res, next) => {
   console.error(`[500] Unhandled error: ${err.message}`);

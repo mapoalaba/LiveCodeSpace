@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import '../styles/Dashboard.css';
 
 const Dashboard = () => {
   const [projects, setProjects] = useState([]); // 사용자 프로젝트 리스트 상태
