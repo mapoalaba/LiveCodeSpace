@@ -1,0 +1,38 @@
+.sidebar {
+  width: 20%;
+  background-color: #1e1e1e;
+  color: #d4d4d4;
+  padding: 10px;
+}
+
+.sidebar-controls {
+  margin-bottom: 10px;
+}
+
+.sidebar-controls button {
+  display: block;
+  margin-bottom: 5px;
+  background-color: #3c3c3c;
+  color: #fff;
+  border: none;
+  padding: 5px;
+  cursor: pointer;
+}
+
+.sidebar-controls button:hover {
+  background-color: #4a4a4a;
+}
+
+.sidebar ul {
+  list-style: none;
+  padding: 0;
+}
+
+.sidebar ul li {
+  margin-bottom: 5px;
+  cursor: pointer;
+}
+
+.sidebar ul li:hover {
+  text-decoration: underline;
+}

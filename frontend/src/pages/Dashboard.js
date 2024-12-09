@@ -1,46 +1,98 @@
-// 사용자 프로젝트 대시보드
-
-import React, { useEffect, useState } from "react";
+import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 
 const Dashboard = () => {
-  const [projects, setProjects] = useState([]);
+  const [projects, setProjects] = useState([]); // 사용자 프로젝트 리스트 상태
+  const [loading, setLoading] = useState(true); // 로딩 상태
+  const [error, setError] = useState(""); // 에러 메시지
   const navigate = useNavigate();
 
-  useEffect(() => {
-    const fetchProjects = async () => {
-      const token = localStorage.getItem("token");
-      try {
-        const response = await fetch(`${process.env.REACT_APP_API_URL}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        });
-        const data = await response.json();
-        setProjects(data);
-      } catch (error) {
-        console.error("Failed to fetch projects:", error);
-      }
-    };
+  // 사용자 프로젝트 리스트 가져오기
+  const fetchProjects = async () => {
+    const token = localStorage.getItem("token");
+    setLoading(true);
 
+    try {
+      const response = await fetch(`${process.env.REACT_APP_PROJECTS_API_URL}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error("프로젝트 목록을 불러오는 데 실패했습니다.");
+      }
+
+      const data = await response.json();
+      setProjects(data); // 프로젝트 리스트 업데이트
+    } catch (err) {
+      console.error("프로젝트 불러오기 오류:", err.message);
+      setError("프로젝트를 불러올 수 없습니다. 다시 시도해주세요.");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 새 프로젝트 생성
+  const createNewProject = async () => {
+    const projectName = prompt("새 프로젝트 이름을 입력하세요:");
+    if (!projectName) return;
+
+    const token = localStorage.getItem("token");
+
+    try {
+      const response = await fetch(`${process.env.REACT_APP_PROJECTS_API_URL}`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ projectName }),
+      });
+
+      if (!response.ok) {
+        throw new Error("새 프로젝트 생성에 실패했습니다.");
+      }
+
+      const data = await response.json();
+      setProjects((prevProjects) => [...prevProjects, data.project]); // 리스트에 새 프로젝트 추가
+    } catch (err) {
+      console.error("새 프로젝트 생성 오류:", err.message);
+      setError("프로젝트를 생성할 수 없습니다. 다시 시도해주세요.");
+    }
+  };
+
+  // 특정 프로젝트로 이동
+  const openProject = (projectId) => {
+    navigate(`/workspace/${projectId}`);
+  };
+
+  // 첫 로드 시 프로젝트 목록 가져오기
+  useEffect(() => {
     fetchProjects();
   }, []);
 
-  const createNewProject = () => navigate("/new-project");
-  const openProject = (projectId) => navigate(`/workspace/${projectId}`);
-
   return (
-    <div>
-      <h1>Your Projects</h1>
-      <button onClick={createNewProject}>Create New Project</button>
-      <ul>
-        {projects.map((project) => (
-          <li key={project.projectId}>
-            {project.projectName}
-            <button onClick={() => openProject(project.projectId)}>Open</button>
-          </li>
-        ))}
-      </ul>
+    <div className="project-dashboard">
+      <h1>내 프로젝트</h1>
+      <button onClick={createNewProject}>새 프로젝트 만들기</button>
+      {loading ? (
+        <p>프로젝트를 불러오는 중...</p>
+      ) : error ? (
+        <p style={{ color: "red" }}>{error}</p>
+      ) : (
+        <ul>
+          {projects.map((project) => (
+            <li key={project.projectId}>
+              {project.projectName}
+              <button onClick={() => openProject(project.projectId)}>열기</button>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 };
+
 
 export default Dashboard;
