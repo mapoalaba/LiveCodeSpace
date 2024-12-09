@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
+import '../styles/Dashboard.css';
 
 const Dashboard = () => {
   const [projects, setProjects] = useState([]); // 사용자 프로젝트 리스트 상태
@@ -69,6 +70,12 @@ const Dashboard = () => {
 
   // 첫 로드 시 프로젝트 목록 가져오기
   useEffect(() => {
+    // 토큰 체크
+    const token = localStorage.getItem('token');
+    if (!token) {
+      window.location.href = '/login';
+      return;
+    }
     fetchProjects();
   }, []);
 
