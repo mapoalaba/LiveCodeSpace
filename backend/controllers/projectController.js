@@ -2,7 +2,6 @@ const {
   DynamoDBDocumentClient, 
   PutCommand, 
   ScanCommand, 
-  DeleteCommand, 
   GetCommand 
 } = require("@aws-sdk/lib-dynamodb");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
@@ -11,58 +10,151 @@ const {
   PutObjectCommand, 
   GetObjectCommand, 
   DeleteObjectCommand, 
-  ListObjectsV2Command 
+  ListObjectsV2Command,
+  CopyObjectCommand,
+  HeadObjectCommand 
 } = require("@aws-sdk/client-s3");
 
 const dynamoClient = new DynamoDBClient({ region: process.env.AWS_REGION });
 const dynamoDB = DynamoDBDocumentClient.from(dynamoClient);
 const s3Client = new S3Client({ region: process.env.AWS_REGION });
 
-// 프로젝트 트리 조회
+// ** 재귀적으로 트리를 생성하는 함수 **
+const buildTree = async (projectId, prefix) => {
+  const params = {
+    Bucket: process.env.S3_BUCKET_NAME,
+    Prefix: prefix,
+    Delimiter: "/"
+  };
+
+  try {
+    const data = await s3Client.send(new ListObjectsV2Command(params));
+    console.log("Raw S3 response for prefix:", prefix, JSON.stringify(data, null, 2));
+
+    // 폴더 처리
+    const folders = await Promise.all((data.CommonPrefixes || []).map(async (prefixObj) => {
+      const folderPath = prefixObj.Prefix;
+      const pathParts = folderPath.split('/').filter(Boolean);
+      const folderName = pathParts[pathParts.length - 1];
+
+      // 재귀적으로 하위 폴더 내용 가져오기
+      const children = await buildTree(projectId, folderPath);
+      
+      return {
+        id: folderPath,
+        name: folderName,
+        path: folderPath,
+        type: "folder",
+        children: children
+      };
+    }));
+
+    // 파일 처리
+    const files = (data.Contents || [])
+      .filter(content => {
+        return content.Key.startsWith(prefix) && 
+               content.Key !== prefix && 
+               !content.Key.endsWith('/');
+      })
+      .map(file => {
+        const pathParts = file.Key.split('/').filter(Boolean);
+        const fileName = pathParts[pathParts.length - 1];
+
+        return {
+          id: file.Key,
+          name: fileName,
+          path: file.Key,
+          type: "file"
+        };
+      });
+
+    console.log(`Processed items for prefix ${prefix}:`, {
+      folders: folders.map(f => f.name),
+      files: files.map(f => f.name)
+    });
+
+    return [...folders, ...files];
+  } catch (error) {
+    console.error("Error in buildTree:", error);
+    throw error;
+  }
+};
+
+// ** 프로젝트 파일 트리 조회 **
 exports.getProjectTree = async (req, res) => {
   const { projectId } = req.params;
-  const { folderPath } = req.query; // 폴더 경로를 전달받음
+  const { folderPath } = req.query;
 
   if (!projectId) {
     return res.status(400).json({ error: "Project ID가 필요합니다." });
   }
 
   try {
-    const prefix = folderPath ? `${projectId}/${folderPath}/` : `${projectId}/`;
-    console.log("Fetching tree for folderPath:", folderPath);
-    console.log("Prefix used:", prefix);
+    // 폴더 경로 정규화
+    const normalizedPath = folderPath 
+      ? `${projectId}/${folderPath.replace(/^proj-.*?\//, '')}`
+      : `${projectId}/`;
+
+    console.log('Normalized Path:', normalizedPath);
 
     const params = {
       Bucket: process.env.S3_BUCKET_NAME,
-      Prefix: prefix,
-      Delimiter: "/",
+      Prefix: normalizedPath,
+      Delimiter: "/"
     };
 
     const data = await s3Client.send(new ListObjectsV2Command(params));
-    console.log("S3 Response Data:", data); // S3에서 반환된 전체 데이터 확인
+    console.log("S3 Response:", JSON.stringify(data, null, 2));
 
-    const folders = (data.CommonPrefixes || []).map((prefix) => ({
-      id: prefix.Prefix,
-      name: prefix.Prefix.split("/").slice(-2, -1)[0], // 폴더명 추출
-      path: prefix.Prefix,
-      type: "folder",
-    }));
+    // 전체 폴더 목록을 한 번에 가져오기
+    const listAllParams = {
+      Bucket: process.env.S3_BUCKET_NAME,
+      Prefix: `${projectId}/`
+    };
+    const allData = await s3Client.send(new ListObjectsV2Command(listAllParams));
+    console.log("All objects:", JSON.stringify(allData, null, 2));
+
+    // 현재 경로의 직계 자식만 필터링
+    const currentLevel = normalizedPath.split('/').filter(Boolean).length;
+    
+    const folders = (data.CommonPrefixes || [])
+      .filter(prefix => {
+        const prefixPath = prefix.Prefix;
+        const pathParts = prefixPath.split('/').filter(Boolean);
+        return pathParts.length === currentLevel + 1;
+      })
+      .map(prefix => {
+        const folderName = prefix.Prefix.split('/').slice(-2, -1)[0];
+        return {
+          id: prefix.Prefix,
+          name: folderName,
+          path: prefix.Prefix,
+          type: "folder",
+          children: []
+        };
+      });
 
     const files = (data.Contents || [])
-      .filter((content) => content.Key !== prefix) // 현재 폴더 경로 제외
-      .map((file) => ({
-        id: file.Key,
-        name: file.Key.split("/").pop(), // 파일명 추출
-        path: file.Key,
-        type: "file",
-      }));
+      .filter(content => {
+        if (content.Key === normalizedPath || content.Key.endsWith('/')) return false;
+        const keyParts = content.Key.split('/').filter(Boolean);
+        return keyParts.length === currentLevel + 1;
+      })
+      .map(file => {
+        const fileName = file.Key.split('/').pop();
+        return {
+          id: file.Key,
+          name: fileName,
+          path: file.Key,
+          type: "file"
+        };
+      });
 
-    console.log("Parsed Folders:", folders);
-    console.log("Parsed Files:", files);
-
+    console.log('Returning tree:', JSON.stringify([...folders, ...files], null, 2));
     res.status(200).json({ tree: [...folders, ...files] });
+
   } catch (error) {
-    console.error("Error fetching project tree:", error.message);
+    console.error("Error fetching project tree:", error);
     res.status(500).json({ error: "Failed to fetch project tree." });
   }
 };
@@ -85,10 +177,21 @@ exports.createProject = async (req, res) => {
   };
 
   try {
-    await dynamoDB.send(new PutCommand({ TableName: "LiveCodeProjects", Item: newProject }));
+    await dynamoDB.send(new PutCommand({ 
+      TableName: "LiveCodeProjects", 
+      Item: newProject 
+    }));
+
+    // 프로젝트 루트 폴더 생성
+    await s3Client.send(new PutObjectCommand({
+      Bucket: process.env.S3_BUCKET_NAME,
+      Key: `${newProject.projectId}/`,
+      Body: ""
+    }));
+
     res.status(201).json({ project: newProject });
   } catch (error) {
-    console.error("Error creating project:", error.message);
+    console.error("Error creating project:", error);
     res.status(500).json({ error: "Failed to create project." });
   }
 };
@@ -100,7 +203,7 @@ exports.getProjectById = async (req, res) => {
   try {
     const params = {
       TableName: "LiveCodeProjects",
-      Key: { projectId },
+      Key: { projectId }
     };
 
     const result = await dynamoDB.send(new GetCommand(params));
@@ -110,7 +213,7 @@ exports.getProjectById = async (req, res) => {
 
     res.json(result.Item);
   } catch (error) {
-    console.error("Error fetching project:", error.message);
+    console.error("Error fetching project:", error);
     res.status(500).json({ error: "Failed to fetch project." });
   }
 };
@@ -128,100 +231,32 @@ exports.getUserProjects = async (req, res) => {
     const result = await dynamoDB.send(new ScanCommand(params));
     res.json(result.Items || []);
   } catch (error) {
-    console.error("Error fetching projects:", error.message);
+    console.error("Error fetching projects:", error);
     res.status(500).json({ error: "Failed to fetch projects." });
-  }
-};
-
-// 평탄화된 데이터를 계층적으로 변환
-const buildTree = (flatData) => {
-  const root = [];
-
-  // Helper: 트리 노드 탐색 및 삽입
-  const findOrCreateNode = (pathParts, currentLevel) => {
-    const [currentPart, ...restParts] = pathParts;
-
-    let existingNode = currentLevel.find((node) => node.name === currentPart);
-
-    if (!existingNode) {
-      existingNode = {
-        name: currentPart,
-        type: restParts.length === 0 ? "file" : "folder", // 마지막 파트가 파일이면 "file", 아니면 "folder"
-        children: [],
-        path: pathParts.join("/"),
-      };
-      currentLevel.push(existingNode);
-    }
-
-    if (restParts.length > 0) {
-      return findOrCreateNode(restParts, existingNode.children);
-    }
-    return existingNode;
-  };
-
-  flatData.forEach((item) => {
-    const pathParts = item.path.split("/").filter(Boolean); // "/"로 경로를 분리하고 빈 값 제거
-    findOrCreateNode(pathParts, root);
-  });
-
-  return root;
-};
-
-// ** 프로젝트 파일 트리 조회 **
-exports.getProjectTree = async (req, res) => {
-  const { projectId } = req.params;
-  const { folderPath } = req.query; // 폴더 경로를 전달받음
-
-  if (!projectId) {
-    return res.status(400).json({ error: "Project ID가 필요합니다." });
-  }
-
-  try {
-    const params = {
-      Bucket: process.env.S3_BUCKET_NAME,
-      Prefix: folderPath ? `${projectId}/${folderPath}/` : `${projectId}/`,
-      Delimiter: "/",
-    };
-
-    const data = await s3Client.send(new ListObjectsV2Command(params));
-
-    const folders = (data.CommonPrefixes || []).map((prefix) => ({
-      id: prefix.Prefix,
-      name: prefix.Prefix.split("/").slice(-2, -1)[0],
-      path: prefix.Prefix,
-      type: "folder",
-    }));
-
-    const files = (data.Contents || [])
-      .filter((content) => content.Key !== params.Prefix)
-      .map((file) => ({
-        id: file.Key,
-        name: file.Key.split("/").pop(),
-        path: file.Key,
-        type: "file",
-      }));
-
-    res.status(200).json({ tree: [...folders, ...files] });
-  } catch (error) {
-    console.error("Error fetching project tree:", error.message);
-    res.status(500).json({ error: "Failed to fetch project tree." });
   }
 };
 
 // ** 파일 내용 조회 **
 exports.getFileContent = async (req, res) => {
-  const { projectId, filePath } = req.params;
+  const { projectId } = req.params;
+  const { filePath } = req.query;
+
+  if (!projectId || !filePath) {
+    return res.status(400).json({ error: "Project ID and file path are required." });
+  }
 
   try {
     const params = {
       Bucket: process.env.S3_BUCKET_NAME,
-      Key: `${projectId}/${filePath}`,
+      Key: filePath
     };
+
     const data = await s3Client.send(new GetObjectCommand(params));
-    const content = await streamToString(data.Body);
-    res.status(200).json({ content });
+    const content = await data.Body.transformToString();
+
+    res.json({ content });
   } catch (error) {
-    console.error("Error fetching file content:", error.message);
+    console.error("Error fetching file content:", error);
     res.status(500).json({ error: "Failed to fetch file content." });
   }
 };
@@ -234,52 +269,35 @@ exports.createFolder = async (req, res) => {
     return res.status(400).json({ error: "Project ID와 폴더 이름이 필요합니다." });
   }
 
-  const folderFullPath = folderPath
-    ? `${projectId}/${folderPath.replace(/^\//, "").replace(/\/$/, "")}/${folderName}/`
-    : `${projectId}/${folderName}/`;
-
   try {
+    let fullFolderPath;
+    // 현재 folderPath에 이미 projectId가 포함되어 있는지 확인
+    if (folderPath && folderPath.startsWith(`${projectId}/`)) {
+      fullFolderPath = `${folderPath}${folderName}/`;
+    } else {
+      fullFolderPath = folderPath 
+        ? `${projectId}/${folderPath}${folderName}/` 
+        : `${projectId}/${folderName}/`;
+    }
+
+    console.log("Creating folder at path:", fullFolderPath);
+
     const params = {
       Bucket: process.env.S3_BUCKET_NAME,
-      Key: folderFullPath,
-      Body: "",
+      Key: fullFolderPath,
+      Body: ""
     };
 
     await s3Client.send(new PutObjectCommand(params));
-    res.status(201).json({ path: folderFullPath, name: folderName, type: "folder" });
+    res.status(201).json({ 
+      path: fullFolderPath, 
+      name: folderName, 
+      type: "folder",
+      children: [] 
+    });
   } catch (error) {
-    console.error("Error creating folder:", error.message);
+    console.error("Error creating folder:", error);
     res.status(500).json({ error: "Failed to create folder" });
-  }
-};
-
-// ** 폴더 삭제 **
-exports.deleteFolder = async (req, res) => {
-  const { projectId, folderPath } = req.params;
-
-  try {
-    const listParams = {
-      Bucket: process.env.S3_BUCKET_NAME,
-      Prefix: `${projectId}/${folderPath}/`,
-    };
-
-    const listData = await s3Client.send(new ListObjectsV2Command(listParams));
-
-    const deleteObjects = listData.Contents.map((obj) => ({
-      Key: obj.Key,
-    }));
-
-    await s3Client.send(
-      new DeleteObjectCommand({
-        Bucket: process.env.S3_BUCKET_NAME,
-        Delete: { Objects: deleteObjects },
-      })
-    );
-
-    res.status(200).json({ message: "Folder deleted successfully." });
-  } catch (error) {
-    console.error("Error deleting folder:", error.message);
-    res.status(500).json({ error: "Failed to delete folder." });
   }
 };
 
@@ -291,67 +309,215 @@ exports.createFile = async (req, res) => {
     return res.status(400).json({ error: "Project ID와 파일 이름이 필요합니다." });
   }
 
-  // folderPath가 없을 경우를 처리하고 중복된 슬래시를 제거
-  const sanitizedFolderPath = folderPath
-    ? folderPath.replace(/\/+/g, "/").replace(/^\//, "").replace(/\/$/, "") // 중복 슬래시 제거 및 앞뒤 슬래시 처리
-    : ""; // folderPath가 없을 경우 빈 문자열로 설정
+  try {
+    let fullFilePath;
+    // 현재 folderPath에 이미 projectId가 포함되어 있는지 확인
+    if (folderPath && folderPath.startsWith(`${projectId}/`)) {
+      fullFilePath = `${folderPath}${fileName}`;
+    } else {
+      fullFilePath = folderPath 
+        ? `${projectId}/${folderPath}${fileName}` 
+        : `${projectId}/${fileName}`;
+    }
 
-  // 파일 경로 생성
-  const filePath = sanitizedFolderPath
-    ? `${projectId}/${sanitizedFolderPath}/${fileName}` // 폴더가 있을 경우
-    : `${projectId}/${fileName}`; // 폴더가 없을 경우
+    console.log("Creating file at path:", fullFilePath);
+
+    const params = {
+      Bucket: process.env.S3_BUCKET_NAME,
+      Key: fullFilePath,
+      Body: "",
+      ContentType: "text/plain"
+    };
+
+    await s3Client.send(new PutObjectCommand(params));
+    res.status(201).json({ 
+      path: fullFilePath, 
+      name: fileName, 
+      type: "file" 
+    });
+  } catch (error) {
+    console.error("Error creating file:", error);
+    res.status(500).json({ error: "Failed to create file." });
+  }
+};
+
+// ** 파일 내용 저장 **
+exports.updateFileContent = async (req, res) => {
+  const { filePath, content } = req.body;
+
+  if (!filePath) {
+    return res.status(400).json({ error: "File path is required." });
+  }
 
   try {
     const params = {
       Bucket: process.env.S3_BUCKET_NAME,
       Key: filePath,
-      Body: "",
-      ContentType: "text/plain",
+      Body: content || "",
+      ContentType: "text/plain"
     };
 
     await s3Client.send(new PutObjectCommand(params));
-    res.status(201).json({ path: filePath, name: fileName, type: "file" });
+    res.status(200).json({ message: "File updated successfully" });
   } catch (error) {
-    console.error("Error creating file:", error.message);
-    res.status(500).json({ error: "Failed to create file." });
+    console.error("Error updating file:", error);
+    res.status(500).json({ error: "Failed to update file." });
   }
 };
 
-// ** 파일 삭제 **
+// 폴더 내 모든 항목을 재귀적으로 삭제하는 함수
+const deleteFolder = async (prefix) => {
+  const listParams = {
+    Bucket: process.env.S3_BUCKET_NAME,
+    Prefix: prefix
+  };
+
+  try {
+    // 폴더 내 모든 항목 나열
+    const data = await s3Client.send(new ListObjectsV2Command(listParams));
+    if (!data.Contents || data.Contents.length === 0) {
+      return;
+    }
+
+    // 삭제할 객체들의 목록 생성
+    const deletePromises = data.Contents.map(item => {
+      return s3Client.send(new DeleteObjectCommand({
+        Bucket: process.env.S3_BUCKET_NAME,
+        Key: item.Key
+      }));
+    });
+
+    // 모든 객체 삭제
+    await Promise.all(deletePromises);
+
+    // 다음 페이지가 있으면 재귀적으로 처리
+    if (data.IsTruncated) {
+      await deleteFolder(prefix);
+    }
+  } catch (error) {
+    console.error('Error deleting folder contents:', error);
+    throw error;
+  }
+};
+
+// 파일 삭제 핸들러
 exports.deleteFile = async (req, res) => {
-  const { projectId, filePath } = req.params;
+  const { projectId } = req.params;
+  const { filePath } = req.body;
+
+  if (!projectId || !filePath) {
+    return res.status(400).json({ error: "Project ID와 파일 경로가 필요합니다." });
+  }
 
   try {
     const params = {
       Bucket: process.env.S3_BUCKET_NAME,
-      Key: `${projectId}/${filePath}`,
+      Key: filePath
     };
 
     await s3Client.send(new DeleteObjectCommand(params));
-    res.status(200).json({ message: "File deleted successfully." });
+    res.status(200).json({ message: "파일이 성공적으로 삭제되었습니다." });
   } catch (error) {
-    console.error("Error deleting file:", error.message);
-    res.status(500).json({ error: "Failed to delete file." });
+    console.error("Error deleting file:", error);
+    res.status(500).json({ error: "파일 삭제에 실패했습니다." });
   }
 };
 
-// ** 파일 내용 저장 **
-exports.saveFileContent = async (req, res) => {
+// 폴더 삭제 핸들러
+exports.deleteFolder = async (req, res) => {
   const { projectId } = req.params;
-  const { filePath, content } = req.body;
+  const { folderPath } = req.body;
+
+  if (!projectId || !folderPath) {
+    return res.status(400).json({ error: "Project ID와 폴더 경로가 필요합니다." });
+  }
 
   try {
-    const params = {
+    await deleteFolder(folderPath);
+    res.status(200).json({ message: "폴더가 성공적으로 삭제되었습니다." });
+  } catch (error) {
+    console.error("Error deleting folder:", error);
+    res.status(500).json({ error: "폴더 삭제에 실패했습니다." });
+  }
+};
+
+// 폴더 및 파일 이름 변경
+exports.renameItem = async (req, res) => {
+  const { projectId } = req.params;
+  const { oldPath, newName, type } = req.body;
+
+  if (!projectId || !oldPath || !newName) {
+    return res.status(400).json({ error: "필수 정보가 누락되었습니다." });
+  }
+
+  try {
+    // 새로운 경로 생성
+    const pathParts = oldPath.split('/');
+    pathParts.pop(); // 마지막 이름 제거
+    const newPath = type === 'folder' 
+      ? [...pathParts, newName, ''].join('/') // 폴더는 끝에 / 추가
+      : [...pathParts, newName].join('/');
+
+    // 1. 기존 항목이 존재하는지 확인
+    const checkParams = {
       Bucket: process.env.S3_BUCKET_NAME,
-      Key: `${projectId}/${filePath}`,
-      Body: content,
-      ContentType: "text/plain",
+      Key: newPath
     };
 
-    await s3Client.send(new PutObjectCommand(params));
-    res.status(200).json({ message: "File content saved successfully." });
+    try {
+      await s3Client.send(new HeadObjectCommand(checkParams));
+      return res.status(400).json({ error: "이미 같은 이름의 항목이 존재합니다." });
+    } catch (error) {
+      // 항목이 없으면 정상적으로 진행
+      if (error.name !== 'NotFound') throw error;
+    }
+
+    if (type === 'folder') {
+      // 폴더인 경우 모든 하위 항목도 이동
+      const listParams = {
+        Bucket: process.env.S3_BUCKET_NAME,
+        Prefix: oldPath
+      };
+
+      const data = await s3Client.send(new ListObjectsV2Command(listParams));
+      
+      // 모든 하위 항목에 대해 복사 및 삭제 작업 수행
+      for (const item of data.Contents || []) {
+        const newKey = item.Key.replace(oldPath, newPath);
+        
+        await s3Client.send(new CopyObjectCommand({
+          Bucket: process.env.S3_BUCKET_NAME,
+          CopySource: `${process.env.S3_BUCKET_NAME}/${item.Key}`,
+          Key: newKey
+        }));
+
+        await s3Client.send(new DeleteObjectCommand({
+          Bucket: process.env.S3_BUCKET_NAME,
+          Key: item.Key
+        }));
+      }
+    } else {
+      // 파일인 경우 단순 복사 후 삭제
+      await s3Client.send(new CopyObjectCommand({
+        Bucket: process.env.S3_BUCKET_NAME,
+        CopySource: `${process.env.S3_BUCKET_NAME}/${oldPath}`,
+        Key: newPath
+      }));
+
+      await s3Client.send(new DeleteObjectCommand({
+        Bucket: process.env.S3_BUCKET_NAME,
+        Key: oldPath
+      }));
+    }
+
+    res.status(200).json({ 
+      oldPath,
+      newPath,
+      type,
+      message: "이름이 성공적으로 변경되었습니다."
+    });
   } catch (error) {
-    console.error("Error saving file content:", error.message);
-    res.status(500).json({ error: "Failed to save file content." });
+    console.error("Error renaming item:", error);
+    res.status(500).json({ error: "이름 변경에 실패했습니다." });
   }
 };

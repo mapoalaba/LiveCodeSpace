@@ -1,7 +1,11 @@
+// 사용자 인증 컨트롤러
+
+
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { DynamoDBDocumentClient, PutCommand, UpdateCommand, GetCommand } = require("@aws-sdk/lib-dynamodb");
 const AmazonCognitoIdentity = require("amazon-cognito-identity-js");
 const jwt = require("jsonwebtoken");
+const jwksClient = require("jwks-rsa");
 const { promisify } = require("util");
 
 // AWS 설정
@@ -129,35 +133,66 @@ exports.resendConfirmationCode = (req, res) => {
   });
 };
 
-// 사용자 프로필 조회 API
+// 사용자 프로필 조회
 exports.getUserProfile = async (req, res) => {
   const { userId } = req.user;
 
-  const params = {
-    TableName: "Users",
-    Key: { userId },
-  };
-
   try {
+    const params = {
+      TableName: "Users",
+      Key: { userId },
+    };
     const data = await dynamoDB.send(new GetCommand(params));
-    if (!data.Item) return res.status(404).json({ error: "User not found" });
+    if (!data.Item) {
+      return res.status(404).json({ error: "User not found." });
+    }
     res.json(data.Item);
   } catch (error) {
     console.error("DynamoDB error:", error.message);
-    res.status(500).json({ error: "Failed to retrieve user profile" });
+    res.status(500).json({ error: "Failed to retrieve user profile." });
   }
 };
 
-// JWT 인증 미들웨어
+// AWS Cognito JWKS 설정
+const client = jwksClient({
+  jwksUri: `https://cognito-idp.ap-northeast-2.amazonaws.com/${process.env.COGNITO_USER_POOL_ID}/.well-known/jwks.json`,
+});
+
+// 공개 키 가져오기 함수
+function getKey(header, callback) {
+  client.getSigningKey(header.kid, (err, key) => {
+    if (err) {
+      console.error("Error fetching signing key:", err);
+      callback(err, null);
+    } else {
+      const signingKey = key.getPublicKey();
+      callback(null, signingKey);
+    }
+  });
+}
+
+// 토큰 검증 미들웨어
 exports.verifyToken = (req, res, next) => {
   const token = req.headers.authorization?.split(" ")[1];
-  if (!token) return res.status(401).json({ error: "Access denied" });
-
-  try {
-    const verified = jwt.verify(token, process.env.JWT_SECRET);
-    req.user = verified;
-    next();
-  } catch (err) {
-    res.status(400).json({ error: "Invalid token" });
+  if (!token) {
+    return res.status(401).json({ error: "Access denied. No token provided." });
   }
+
+  jwt.verify(token, getKey, { algorithms: ["RS256"] }, (err, decoded) => {
+    if (err) {
+      console.error("Invalid Token Error:", err.message);
+      return res.status(400).json({ error: "Invalid token" });
+    }
+
+    console.log("Decoded User:", decoded);
+
+    // JWT에서 필요한 정보를 매핑하여 req.user에 저장
+    req.user = {
+      userId: decoded.sub, // sub 필드를 userId로 매핑
+      name: decoded.name,  // 이름 필드 추가
+      email: decoded.email // 이메일 필드 추가
+    };
+
+    next();
+  });
 };

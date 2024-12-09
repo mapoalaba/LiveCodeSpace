@@ -5,7 +5,6 @@ const http = require("http");
 const { Server } = require("socket.io");
 const bodyParser = require("body-parser");
 const authRoutes = require("./routes/authRoutes");
-const projectRoutes = require("./routes/projectRoutes");
 
 const app = express();
 const server = http.createServer(app);
@@ -34,39 +33,12 @@ app.get("/", (req, res) => {
 
 // ===== 라우트 등록 =====
 app.use("/api/auth", authRoutes);
-app.use("/api/projects", projectRoutes);
 
-// ===== Socket.IO 이벤트 처리 =====
-io.on("connection", (socket) => {
-  console.log(`[Socket.IO] User connected: ${socket.id}`);
-
-  // 프로젝트 방에 참여
-  socket.on("joinProject", (projectId) => {
-    socket.join(projectId);
-    console.log(`[Socket.IO] User ${socket.id} joined project room: ${projectId}`);
-  });
-
-  // 코드 변경 이벤트 처리
-  socket.on("codeChange", ({ projectId, code }) => {
-    console.log(`[Socket.IO] Code update for project ${projectId}:`, code);
-    // 프로젝트 방에 있는 다른 사용자들에게 코드 업데이트 브로드캐스트
-    socket.broadcast.to(projectId).emit("codeUpdate", { code });
-  });
-
-  // 연결 해제 처리
-  socket.on("disconnect", () => {
-    console.log(`[Socket.IO] User disconnected: ${socket.id}`);
-  });
+// 서버 시작
+app.listen(PORT, () => {
+  console.log(`Server running on port ${PORT}`);
 });
 
-// ===== 에러 핸들링 =====
-// 404 핸들러
-app.use((req, res, next) => {
-  console.warn(`[404] Route not found: ${req.method} ${req.path}`);
-  res.status(404).json({ error: "Not Found" });
-});
-
-// 일반 에러 핸들러
 app.use((err, req, res, next) => {
   console.error(`[500] Unhandled error: ${err.message}`);
   res.status(500).json({ error: "An unexpected error occurred." });
