@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";
-import Header from './Header.js';
 import "../styles/Login.css";
 
 
@@ -20,8 +19,9 @@ const Login = ({ onLogin }) => {
 
       const data = await response.json();
       if (response.ok) {
+        localStorage.setItem('isLoggedIn', 'true'); // 로그인 상태 저장
         onLogin(data.token); // App.js의 handleLogin 호출
-        navigate("/dashboard"); // 대시보드로 이동
+        window.location.href = '/dashboard'; // navigate 대신 사용
       } else {
         setError(data.error || "Login failed");
       }
@@ -32,7 +32,6 @@ const Login = ({ onLogin }) => {
 
   return (
     <div>
-      <Header />
       <div className="login-container">
         <div className="login-box">
           <div className="login-header">
