@@ -1,6 +1,5 @@
 import React, { useState } from "react";
 import { useNavigate } from "react-router-dom";  // 추가
-import Header from './Header.js';
 import "../styles/Register.css";
 
 const RegisterAndVerify = () => {
@@ -95,7 +94,6 @@ const RegisterAndVerify = () => {
 
   return (
     <div>
-      <Header />
       <div className="register-container">
         <div className="register-box">
           {step === 1 ? (

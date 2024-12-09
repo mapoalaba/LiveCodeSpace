@@ -1,7 +1,7 @@
 .project-dashboard {
   padding: 2.5rem;
   max-width: 1200px;
-  margin: 0 auto;
+  margin: 30px auto 0; /* margin-top 추가 */
 }
 
 .project-dashboard h1 {
