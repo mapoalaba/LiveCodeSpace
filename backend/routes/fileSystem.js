@@ -7,7 +7,9 @@ const {
   renameItem,
   deleteItem,
   getFileContent,
-  saveFileContent
+  saveFileContent,
+  moveItem,
+  searchItems
 } = require('../controllers/fileSystemController');
 
 const router = express.Router();
@@ -18,5 +20,7 @@ router.put('/items/:id/rename', verifyToken, renameItem);
 router.delete('/items/:id', verifyToken, deleteItem);
 router.get('/items/:id/content', verifyToken, getFileContent);
 router.put('/items/:id/content', verifyToken, saveFileContent);
+router.put('/items/:id/move', verifyToken, moveItem);
+router.get('/:projectId/search', verifyToken, searchItems);
 
 module.exports = router;

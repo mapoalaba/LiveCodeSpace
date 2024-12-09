@@ -57,7 +57,7 @@ function App() {
   return (
     <Router>
       <div>
-        <nav style={{ padding: "10px", backgroundColor: "#282c34" }}>
+        {/* <nav style={{ padding: "10px", backgroundColor: "#282c34" }}>
           <Link to="/" style={{ marginRight: "15px", color: "#61dafb" }}>
             Home
           </Link>
@@ -73,7 +73,7 @@ function App() {
           ) : (
             <LogoutButton onLogout={handleLogout} />
           )}
-        </nav>
+        </nav> */}
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Navigate to="/home" />} />
