@@ -43,7 +43,7 @@ const Home = () => {
           </button>
         </div>
         <div className="home-header-image">
-          <img src="" alt="Sample Visual" />
+          {/* Sample Visual 이미지가 들어갈 공간 */}
         </div>
       </div>
 

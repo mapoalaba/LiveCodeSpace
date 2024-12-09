@@ -179,8 +179,22 @@
 }
 
 .home-header-image {
-  flex: 1; /* 이미지 영역의 크기를 조절 */
+  flex: 1;
   text-align: center;
+  height: 400px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
+  border-radius: 20px;
+  transition: all 0.3s ease;
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.05);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  color: #aaa;
+  overflow: hidden;
+}
+
+.home-header-image:hover {
+  transform: scale(1.01);
 }
 
 .home-header-image img {

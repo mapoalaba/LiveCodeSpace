@@ -1,8 +1,10 @@
 import React, { useState } from "react";
+import { useNavigate } from "react-router-dom";  // 추가
 import Header from './Header.js';
 import "../styles/Register.css";
 
 const RegisterAndVerify = () => {
+  const navigate = useNavigate();  // 추가
   const [step, setStep] = useState(1); // 1: Register, 2: Verify
   const [formData, setFormData] = useState({
     name: "",
@@ -60,6 +62,9 @@ const RegisterAndVerify = () => {
       const data = await response.json();
       if (response.ok) {
         setMessage("Email verified successfully! You can now log in.");
+        setTimeout(() => {
+          navigate('/login');  // Login 페이지로 리다이렉트
+        }, 1500);  // 1.5초 후 리다이렉트
       } else {
         setMessage(data.error || "Verification failed.");
       }

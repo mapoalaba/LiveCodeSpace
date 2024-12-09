@@ -20,12 +20,14 @@
   margin: 0;
   letter-spacing: -0.04em;
   background: linear-gradient(120deg, #2b4acb 0%, #1a237e 100%);
-  -webkit-background-clip: text;
+  background-clip: text;
   -webkit-text-fill-color: transparent;
   transition: opacity 0.3s ease;
 }
 
-.header-right .header-login-button {
+.header-right .header-login-button,
+.header-right .header-dashboard-button,
+.header-right .header-logout-button {
   padding: 12px 25px;
   background: linear-gradient(120deg, #2b4acb 0%, #1a237e 100%);
   color: white;
@@ -36,9 +38,12 @@
   cursor: pointer;
   transition: all 0.3s ease;
   box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1);
+  margin-left: 10px;
 }
 
-.header-right .header-login-button:hover {
+.header-right .header-login-button:hover,
+.header-right .header-dashboard-button:hover,
+.header-right .header-logout-button:hover {
   transform: translateY(-2px);
   box-shadow: 0 6px 20px rgba(0, 0, 0, 0.15);
   background: linear-gradient(120deg, #1a237e 0%, #2b4acb 100%);

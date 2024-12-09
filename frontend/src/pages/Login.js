@@ -26,6 +26,8 @@ const Login = () => {
       if (response.ok) {
         setMessage("Login successful!");
         localStorage.setItem("token", data.token); // JWT 토큰 저장
+        localStorage.setItem("isLoggedIn", "true");
+        window.location.href = '/Home';
       } else {
         setMessage(data.error || "Login failed.");
       }
