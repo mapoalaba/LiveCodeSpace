@@ -1,0 +1,158 @@
+/* Workspace.css */
+.workspace {
+  display: flex;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.sidebar {
+  width: 250px;
+  border-right: 1px solid #ddd;
+  background: #f8f9fa;
+  overflow-y: auto;
+  padding: 0;
+}
+
+.sidebar-header {
+  padding: 10px;
+  border-bottom: 1px solid #ddd;
+  display: flex;
+  gap: 10px;
+}
+
+.file-tree {
+  padding: 10px;
+  margin: 0;
+}
+
+.tree-node-container {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding-right: 8px;
+}
+
+.tree-node {
+  display: flex;
+  align-items: center;
+  padding: 4px 8px;
+  cursor: pointer;
+  border-radius: 4px;
+  transition: background-color 0.2s;
+  flex-grow: 1;
+}
+
+.tree-node:hover {
+  background-color: #e9ecef;
+}
+
+.tree-node.folder {
+  font-weight: 500;
+}
+
+.tree-node.expanded {
+  background-color: #e9ecef;
+}
+
+.tree-node .icon {
+  margin-right: 8px;
+  font-size: 1.1em;
+}
+
+.tree-node .name {
+  margin-left: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.delete-button {
+  visibility: hidden;
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.delete-button:hover {
+  opacity: 1;
+  background: none;
+}
+
+.tree-node-container:hover .delete-button {
+  visibility: visible;
+}
+
+.editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.editor-header {
+  padding: 10px;
+  background: #f8f9fa;
+  border-bottom: 1px solid #ddd;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+button {
+  padding: 6px 12px;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  transition: background-color 0.2s;
+}
+
+button:hover {
+  background: #0056b3;
+}
+
+button:active {
+  background: #004085;
+}
+
+.editor-header span {
+  color: #666;
+  font-size: 14px;
+}
+
+/* 폴더 및 파일 이름 변경 */
+
+.tree-node-actions {
+  display: flex;
+  gap: 4px;
+  visibility: hidden;
+}
+
+.tree-node-container:hover .tree-node-actions {
+  visibility: visible;
+}
+
+.action-button {
+  background: none;
+  border: none;
+  padding: 4px;
+  cursor: pointer;
+  font-size: 14px;
+  opacity: 0.7;
+  transition: opacity 0.2s;
+}
+
+.action-button:hover {
+  opacity: 1;
+  background: none;
+}
+
+.rename-button {
+  font-size: 12px;
+}

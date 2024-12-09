@@ -133,22 +133,23 @@ exports.resendConfirmationCode = (req, res) => {
   });
 };
 
-// 사용자 프로필 조회 API
+// 사용자 프로필 조회
 exports.getUserProfile = async (req, res) => {
   const { userId } = req.user;
 
-  const params = {
-    TableName: "Users",
-    Key: { userId },
-  };
-
   try {
+    const params = {
+      TableName: "Users",
+      Key: { userId },
+    };
     const data = await dynamoDB.send(new GetCommand(params));
-    if (!data.Item) return res.status(404).json({ error: "User not found" });
+    if (!data.Item) {
+      return res.status(404).json({ error: "User not found." });
+    }
     res.json(data.Item);
   } catch (error) {
     console.error("DynamoDB error:", error.message);
-    res.status(500).json({ error: "Failed to retrieve user profile" });
+    res.status(500).json({ error: "Failed to retrieve user profile." });
   }
 };
 
