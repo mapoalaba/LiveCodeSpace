@@ -2,7 +2,7 @@
   display: flex;
   justify-content: center;
   align-items: center;
-  min-height: 100vh;
+  min-height: 80vh;
   padding: 20px;
 }
 
@@ -23,11 +23,16 @@
   margin-bottom: 25px;
 }
 
+.input-container {
+  position: relative;
+  margin: 12px 0;
+}
+
 .register-form input,
 .verify-form input {
   width: 100%;
   padding: 15px;
-  margin: 12px 0;
+  margin: 0;
   border: 2px solid #e2e8f0;
   border-radius: 12px;
   font-size: 16px;
@@ -41,6 +46,19 @@
   border-color: #0061f2;
   box-shadow: 0 0 0 3px rgba(0, 97, 242, 0.1);
   background: #fff;
+}
+
+.register-form input.error,
+.verify-form input.error {
+  border-color: #ff4444;
+  background-color: #fff8f8;
+  margin-bottom: 4px;
+}
+
+.register-form input.error:focus,
+.verify-form input.error:focus {
+  border-color: #ff4444;
+  box-shadow: 0 0 0 3px rgba(255, 68, 68, 0.1);
 }
 
 .register-form button,
@@ -100,4 +118,32 @@
 
 .signup-link a:hover {
   text-decoration: underline;
+}
+
+.error-message {
+  position: absolute;
+  top: -25px;
+  left: 0;
+  background-color: #ff4444;
+  color: white;
+  padding: 4px 8px;
+  border-radius: 4px;
+  font-size: 12px;
+  z-index: 1;
+  white-space: nowrap;
+}
+
+.error-message::after {
+  content: '';
+  position: absolute;
+  bottom: -5px;
+  left: 10px;
+  border-width: 5px 5px 0;
+  border-style: solid;
+  border-color: #ff4444 transparent transparent transparent;
+}
+
+.register-form h1{
+  font-size: 24px;
+  margin-bottom: 25px;
 }

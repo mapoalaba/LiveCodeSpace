@@ -1,9 +1,11 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import '../styles/Home.css';
 import Header from './Header.js';
 import hoseo from '../img/호서.webp';
 
 const Home = () => {
+  const [isLoggedIn, setIsLoggedIn] = useState(false);
+
   useEffect(() => {
     const observer = new IntersectionObserver(
       (entries) => {
@@ -16,11 +18,27 @@ const Home = () => {
       { threshold: 0.1 }
     );
 
+    // 로그인 상태 확인
+    const loginStatus = localStorage.getItem('isLoggedIn') === 'true';
+    setIsLoggedIn(loginStatus);
+
+    const handleStorageChange = () => {
+      const newLoginStatus = localStorage.getItem('isLoggedIn') === 'true';
+      setIsLoggedIn(newLoginStatus);
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    window.addEventListener('load', handleStorageChange);
+
     document.querySelectorAll('.home-header-margin-left, .home-large-image-space').forEach(
       (el) => observer.observe(el)
     );
 
-    return () => observer.disconnect();
+    return () => {
+      observer.disconnect();
+      window.removeEventListener('storage', handleStorageChange);
+      window.removeEventListener('load', handleStorageChange);
+    };
   }, []);
 
   return (
@@ -34,12 +52,14 @@ const Home = () => {
               LiveCodeSpace와 함께하면 팀의 생산성은 향상되고 마음<br />
               에는 평화가 찾아옵니다.
             </p>
-            <button
-              className="home-primary-button"
-              onClick={() => (window.location.href = '/login')}
-            >
-              LiveCodeSpace 무료로 사용하기
-            </button>
+            {!isLoggedIn && (
+              <button
+                className="home-primary-button"
+                onClick={() => (window.location.href = '/login')}
+              >
+                LiveCodeSpace 무료로 사용하기
+              </button>
+            )}
           </div>
           <div className="home-header-image">
             {/* Sample Visual 이미지가 들어갈 공간 */}
