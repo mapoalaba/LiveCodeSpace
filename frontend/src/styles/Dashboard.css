@@ -1,0 +1,95 @@
+.project-dashboard {
+  padding: 2.5rem;
+  max-width: 1200px;
+  margin: 30px auto 0; /* margin-top 추가 */
+}
+
+.project-dashboard h1 {
+  font-size: 2.2rem;
+  color: #2c3e50;
+  margin-bottom: 2.5rem;
+  font-weight: 600;
+  position: relative;
+}
+
+.project-dashboard h1:after {
+  content: '';
+  position: absolute;
+  bottom: -10px;
+  left: 0;
+  width: 60px;
+  height: 4px;
+  background: #3498db;
+  border-radius: 2px;
+}
+
+.project-dashboard button {
+  background-color: #3498db;
+  color: white;
+  border: none;
+  padding: 12px 28px;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 1rem;
+  font-weight: 500;
+  transition: all 0.3s ease;
+  box-shadow: 0 2px 6px rgba(52, 152, 219, 0.2);
+  margin-bottom: 2.5rem;
+}
+
+.project-dashboard button:hover {
+  background-color: #2980b9;
+}
+
+.project-dashboard ul {
+  list-style: none;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 2rem;
+}
+
+.project-dashboard li {
+  background: white;
+  border-radius: 12px;
+  padding: 1.8rem;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.06);
+  transition: all 0.3s ease;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border: 1px solid rgba(52, 152, 219, 0.1);
+}
+
+.project-dashboard li:hover {
+  transform: translateY(-5px);
+  box-shadow: 0 8px 24px rgba(52, 152, 219, 0.12);
+}
+
+.project-dashboard li button {
+  margin-bottom: 0;
+  padding: 8px 20px;
+  font-size: 0.9rem;
+  background-color: #e3f2fd;
+  color: #2980b9;
+}
+
+.project-dashboard li button:hover {
+  background-color: #3498db;
+  color: white;
+}
+
+.project-dashboard p {
+  text-align: center;
+  color: #7f8c8d;
+  font-size: 1.1rem;
+  line-height: 1.6;
+}
+
+.project-dashboard p[style*="red"] {
+  color: #e74c3c;
+  font-weight: 500;
+  padding: 1rem;
+  background: #fde8e7;
+  border-radius: 8px;
+}
