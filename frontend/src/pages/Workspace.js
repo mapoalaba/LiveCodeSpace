@@ -1,8 +1,21 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { Editor } from "@monaco-editor/react";
-import axios from "axios";
+import { Icon } from '@mdi/react';
+import { 
+  mdiLanguageJavascript,
+  mdiReact,
+  mdiCodeJson,
+  mdiLanguageMarkdown,
+  mdiLanguageCss3,
+  mdiLanguageHtml5,
+  mdiConsole,
+  mdiCog,
+  mdiLanguageKotlin,
+  mdiFile
+} from '@mdi/js';
 import "../styles/Workspace.css";
+
 
 const Workspace = () => {
   const { projectId } = useParams();
@@ -15,10 +28,32 @@ const Workspace = () => {
   const [searchQuery, setSearchQuery] = useState("");
   const [searchResults, setSearchResults] = useState(null);
   const [isDraggingOver, setIsDraggingOver] = useState(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
+  const [fileHistory, setFileHistory] = useState([]);
+  const [contextMenu, setContextMenu] = useState(null);
+  const [draggedNode, setDraggedNode] = useState(null);
+  const editorRef = useRef(null);
+  const autoSaveIntervalRef = useRef(null);
 
-  const fetchFileTree = async (parentId = 'root') => {
+  // 자동 저장 설정
+  const AUTO_SAVE_INTERVAL = 30000; // 30초
+
+  // 파일 내용 변경 감지
+  const handleEditorChange = (value) => {
+    setFileContent(value);
+    setHasUnsavedChanges(true);
+  };
+
+  const fetchFileTree = useCallback(async (parentId = 'root') => {
     try {
       const token = localStorage.getItem("token");
+      if (!token) {
+        throw new Error("Missing authentication token");
+      }
+  
+      // Log request details for debugging
+      console.log(`Fetching file tree for project: ${projectId}, parentId: ${parentId}`);
+  
       const response = await fetch(
         `http://localhost:5001/api/filesystem/${projectId}/items?parentId=${parentId === 'root' ? '' : parentId}`,
         {
@@ -29,7 +64,10 @@ const Workspace = () => {
         }
       );
   
-      if (!response.ok) throw new Error("파일 트리 가져오기에 실패했습니다.");
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || `Server error: ${response.status}`);
+      }
   
       const data = await response.json();
       
@@ -39,9 +77,10 @@ const Workspace = () => {
         setFileTree(data.items || []);
       }
     } catch (error) {
-      console.error("파일 트리 가져오기 중 오류:", error.message);
+      console.error("File tree fetch error:", error);
+      setFileTree([]);
     }
-  };
+  }, [projectId]);
 
   const updateTreeNode = (tree, nodeId, newChildren) => {
     return tree.map(node => {
@@ -179,10 +218,17 @@ const Workspace = () => {
     }
   };
 
-  const saveFileContent = async () => {
-    if (!currentFile) return;
-  
+  // 파일 저장
+  const saveFileContent = useCallback(async (isAutoSave = false) => {
+    if (!currentFile || (!hasUnsavedChanges && !isAutoSave)) return;
+
     try {
+      // 현재 상태를 히스토리에 저장
+      setFileHistory(prev => [
+        ...prev, 
+        { content: fileContent, timestamp: new Date() }
+      ]);
+
       const token = localStorage.getItem("token");
       const response = await fetch(
         `http://localhost:5001/api/filesystem/items/${currentFile}/content`,
@@ -192,16 +238,63 @@ const Workspace = () => {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ content: fileContent }),
+          body: JSON.stringify({
+            filePath: currentFile,
+            content: fileContent,
+          }),
         }
       );
-  
+
       if (!response.ok) throw new Error("파일 저장에 실패했습니다.");
-      alert("파일이 저장되었습니다.");
+      
+      setHasUnsavedChanges(false);
+      if (!isAutoSave) {
+        alert("파일이 저장되었습니다.");
+      }
     } catch (error) {
       console.error("파일 저장 실패:", error);
-      alert("파일 저장에 실패했습니다.");
+      if (!isAutoSave) {
+        alert("파일 저장에 실패했습니다.");
+      }
     }
+  }, [currentFile, fileContent]);
+
+  // 컨텍스트 메뉴 처리
+  const handleContextMenu = (e, node) => {
+    e.preventDefault();
+    const menuItems = [
+      {
+        label: '이름 변경',
+        action: () => handleRename(node, e),
+      },
+      {
+        label: '삭제',
+        action: () => handleDelete(node),
+      },
+    ];
+
+    if (node.type === 'folder') {
+      menuItems.unshift({
+        label: '새 파일',
+        action: () => {
+          setCurrentFolder(node.id);
+          handleCreateFile();
+        },
+      });
+      menuItems.unshift({
+        label: '새 폴더',
+        action: () => {
+          setCurrentFolder(node.id);
+          handleCreateFolder();
+        },
+      });
+    }
+
+    setContextMenu({
+      x: e.pageX,
+      y: e.pageY,
+      items: menuItems,
+    });
   };
 
   const handleFileClick = (file) => {
@@ -328,65 +421,65 @@ const Workspace = () => {
     }
   };
 
-// 폴더 삭제 핸들러
-const handleDelete = async (node) => {
-  try {
-    const token = localStorage.getItem("token");
-    const response = await fetch(
-      `http://localhost:5001/api/filesystem/items/${node.id}`,
-      {
-        method: "DELETE",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
+  // 폴더 삭제 핸들러
+  const handleDelete = async (node) => {
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(
+        `http://localhost:5001/api/filesystem/items/${node.id}`,
+        {
+          method: "DELETE",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          }
         }
-      }
-    );
+      );
 
-    if (!response.ok) {
-      throw new Error(`${node.type === 'folder' ? '폴더' : '파일'} 삭제에 실패했습니다.`);
-    }
-
-    // 파일 트리 상태 업데이트
-    setFileTree(prevTree => {
-      // 루트 레벨 아이템 삭제
-      if (!node.parentId || node.parentId === "") {
-        return prevTree.filter(item => item.id !== node.id);
+      if (!response.ok) {
+        throw new Error(`${node.type === 'folder' ? '폴더' : '파일'} 삭제에 실패했습니다.`);
       }
 
-      // 중첩 구조 처리
-      const updateChildren = (items) => {
-        return items.map(item => {
-          if (item.id === node.parentId) {
-            return {
-              ...item,
-              children: item.children.filter(child => child.id !== node.id)
-            };
-          }
-          if (item.children) {
-            return {
-              ...item,
-              children: updateChildren(item.children)
-            };
-          }
-          return item;
-        });
-      };
+      // 파일 트리 상태 업데이트
+      setFileTree(prevTree => {
+        // 루트 레벨 아이템 삭제
+        if (!node.parentId || node.parentId === "") {
+          return prevTree.filter(item => item.id !== node.id);
+        }
 
-      return updateChildren(prevTree);
-    });
+        // 중첩 구조 처리
+        const updateChildren = (items) => {
+          return items.map(item => {
+            if (item.id === node.parentId) {
+              return {
+                ...item,
+                children: item.children.filter(child => child.id !== node.id)
+              };
+            }
+            if (item.children) {
+              return {
+                ...item,
+                children: updateChildren(item.children)
+              };
+            }
+            return item;
+          });
+        };
 
-    // 현재 파일 초기화
-    if (node.type === 'file' && node.id === currentFile) {
-      setCurrentFile("");
-      setFileContent("// 코드를 작성하세요!");
+        return updateChildren(prevTree);
+      });
+
+      // 현재 파일 초기화
+      if (node.type === 'file' && node.id === currentFile) {
+        setCurrentFile("");
+        setFileContent("// 코드를 작성하세요!");
+      }
+
+    } catch (error) {
+      console.error('Delete failed:', error);
+      alert(error.message);
     }
-
-  } catch (error) {
-    console.error('Delete failed:', error);
-    alert(error.message);
-  }
-};
+  };
 
   // 재귀적으로 트리를 순회하며 삭제된 아이템 제거
   const updateTreeAfterDelete = (children, deletedId) => {
@@ -502,8 +595,16 @@ const handleDelete = async (node) => {
             onClick={() => node.type === 'folder' ? handleFolderClick(node) : handleFileClick(node)}
             className={`tree-node ${node.type} ${isExpanded ? 'expanded' : ''}`}
           >
+            {node.type === 'folder' ? (
+              <span className="folder-arrow">
+                {isExpanded ? '▼' : '▶'}
+              </span>
+            ) : null}
             <span className="icon">
-              {node.type === 'folder' ? (isExpanded ? '📂' : '📁') : '📄'}
+              {node.type === 'folder' 
+                ? '📁'
+                : getFileIcon(node.name)
+              }
             </span>
             <span className="name">{node.name}</span>
           </div>
@@ -539,154 +640,237 @@ const handleDelete = async (node) => {
     );
   };
 
-    // 드래그 앤 드롭 핸들러
-    const handleDragStart = (e, node) => {
-      e.stopPropagation();
-      e.dataTransfer.setData('text/plain', JSON.stringify({
-        id: node.id,
-        type: node.type,
-        path: node.path
-      }));
-      e.dataTransfer.effectAllowed = 'move';
-    };
-  
-    const handleDragOver = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      e.dataTransfer.dropEffect = 'move';
+  // 드래그 앤 드롭 핸들러
+  const handleDragStart = (e, node) => {
+    e.stopPropagation();
+    setDraggedNode(node);
+    e.target.classList.add('dragging');
+    e.dataTransfer.setData('text/plain', JSON.stringify({
+      id: node.id,
+      type: node.type,
+      path: node.path
+    }));
+    e.dataTransfer.effectAllowed = 'move';
+  };
+
+  const handleDragEnd = (e) => {
+    e.target.classList.remove('dragging');
+    setDraggedNode(null);
+    const dropTargets = document.querySelectorAll('.drop-target');
+    dropTargets.forEach(target => target.classList.remove('drop-target'));
+  };
+
+  const handleDragEnter = (e) => {
+    if (draggedNode && e.currentTarget.classList.contains('folder')) {
+      e.currentTarget.classList.add('drop-target');
+    }
+  };
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    e.dataTransfer.dropEffect = 'move';
+    
+    // file-tree에 드래그 오버 효과 추가
+    if (e.currentTarget.classList.contains('file-tree')) {
+      setIsDraggingOver(true);
+    }
+  };
+
+  const handleDragLeave = (e) => {
+    e.currentTarget.classList.remove('drop-target');
+  };
+
+  const handleDrop = async (e, targetNode) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDraggingOver(false);
+
+    try {
+      const draggedData = JSON.parse(e.dataTransfer.getData('text/plain'));
       
-      // file-tree에 드래그 오버 효과 추가
-      if (e.currentTarget.classList.contains('file-tree')) {
-        setIsDraggingOver(true);
-      }
-    };
-  
-    const handleDragLeave = (e) => {
-      e.preventDefault();
-      e.stopPropagation();
-      if (e.currentTarget.classList.contains('file-tree')) {
-        setIsDraggingOver(false);
-      }
-    };
-  
-    const handleDrop = async (e, targetNode) => {
-      e.preventDefault();
-      e.stopPropagation();
-      setIsDraggingOver(false);
-  
-      try {
-        const draggedData = JSON.parse(e.dataTransfer.getData('text/plain'));
-        
-        // 대상이 파일이거나 같은 노드면 이동 불가
-        if (targetNode.type !== 'folder' || draggedData.id === targetNode.id) {
-          return;
-        }
-  
-        // 순환 참조 방지
-        if (targetNode.path.startsWith(draggedData.path)) {
-          alert("폴더를 자신의 하위 폴더로 이동할 수 없습니다.");
-          return;
-        }
-  
-        const token = localStorage.getItem("token");
-        const response = await fetch(
-          `http://localhost:5001/api/filesystem/items/${draggedData.id}/move`,
-          {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              newParentId: targetNode.id
-            }),
-          }
-        );
-  
-        if (!response.ok) {
-          const error = await response.json();
-          throw new Error(error.error || "Failed to move item");
-        }
-  
-        await fetchFileTree();
-      } catch (error) {
-        console.error("Error moving item:", error);
-        alert(error.message);
-      }
-    };
-  
-    const handleRootDrop = async (e) => {
-      e.preventDefault();
-      setIsDraggingOver(false);
-    
-      // 드롭 영역 검증
-      const dropTarget = e.target.closest('.file-tree');
-      if (!dropTarget) return;
-    
-      try {
-        const draggedData = JSON.parse(e.dataTransfer.getData('text/plain'));
-        const token = localStorage.getItem("token");
-        
-        const response = await fetch(
-          `http://localhost:5001/api/filesystem/items/${draggedData.id}/move`,
-          {
-            method: "PUT",
-            headers: {
-              "Content-Type": "application/json",
-              Authorization: `Bearer ${token}`,
-            },
-            body: JSON.stringify({
-              newParentId: ""  // 루트로 이동
-            }),
-          }
-        );
-    
-        if (!response.ok) {
-          const error = await response.json();
-          throw error;
-        }
-    
-        // 트리 새로고침
-        await fetchFileTree();
-      } catch (error) {
-        console.error("루트로 이동 실패:", error);
-        alert(error.message || "아이템 이동에 실패했습니다.");
-      }
-    };
-  
-    // 검색 핸들러
-    const handleSearch = async (query) => {
-      if (!query.trim()) {
-        setSearchResults(null);
+      // 대상이 파일이거나 같은 노드면 이동 불가
+      if (targetNode.type !== 'folder' || draggedData.id === targetNode.id) {
         return;
       }
-  
-      try {
-        const token = localStorage.getItem("token");
-        const response = await fetch(
-          `http://localhost:5001/api/filesystem/${projectId}/search?query=${encodeURIComponent(query)}`,
-          {
-            headers: {
-              Authorization: `Bearer ${token}`,
-            },
-          }
-        );
-  
-        if (!response.ok) {
-          throw new Error("Search failed");
-        }
-  
-        const data = await response.json();
-        setSearchResults(data.items);
-      } catch (error) {
-        console.error("Search error:", error);
-        alert("Search failed");
+
+      // 순환 참조 방지
+      if (targetNode.path.startsWith(draggedData.path)) {
+        alert("폴더를 자신의 하위 폴더로 이동할 수 없습니다.");
+        return;
       }
-    };
+
+      const token = localStorage.getItem("token");
+      const response = await fetch(
+        `http://localhost:5001/api/filesystem/items/${draggedData.id}/move`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            newParentId: targetNode.id
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const error = await response.json();
+        throw new Error(error.error || "Failed to move item");
+      }
+
+      await fetchFileTree();
+    } catch (error) {
+      console.error("Error moving item:", error);
+      alert(error.message);
+    }
+  };
+
+  const handleRootDrop = async (e) => {
+    e.preventDefault();
+    setIsDraggingOver(false);
+  
+    // 드롭 영역 검증
+    const dropTarget = e.target.closest('.file-tree');
+    if (!dropTarget) return;
+  
+    try {
+      const draggedData = JSON.parse(e.dataTransfer.getData('text/plain'));
+      const token = localStorage.getItem("token");
+      
+      const response = await fetch(
+        `http://localhost:5001/api/filesystem/items/${draggedData.id}/move`,
+        {
+          method: "PUT",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify({
+            newParentId: ""  // 루트로 이동
+          }),
+        }
+      );
+  
+      if (!response.ok) {
+        const error = await response.json();
+        throw error;
+      }
+  
+      // 트리 새로고침
+      await fetchFileTree();
+    } catch (error) {
+      console.error("루트로 이동 실패:", error);
+      alert(error.message || "아이템 이동에 실패했습니다.");
+    }
+  };
+
+  // 검색 핸들러
+  const handleSearch = async (query) => {
+    if (!query.trim()) {
+      setSearchResults(null);
+      return;
+    }
+
+    try {
+      const token = localStorage.getItem("token");
+      const response = await fetch(
+        `http://localhost:5001/api/filesystem/${projectId}/search?query=${encodeURIComponent(query)}`,
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("Search failed");
+      }
+
+      const data = await response.json();
+      setSearchResults(data.items);
+    } catch (error) {
+      console.error("Search error:", error);
+      alert("Search failed");
+    }
+  };
+
+  const BreadcrumbNav = ({ path }) => {
+    if (!path) return null;
+    const parts = path.split('/').filter(Boolean);
+    
+    return (
+      <div className="breadcrumb">
+        {parts.map((part, index) => (
+          <React.Fragment key={index}>
+            {index > 0 && <span className="separator">/</span>}
+            <span className="breadcrumb-item">{part}</span>
+          </React.Fragment>
+        ))}
+      </div>
+    );
+  };
+  
+  const ContextMenu = ({ x, y, items, onClose }) => (
+    <div 
+      className="context-menu" 
+      style={{ left: x, top: y }}
+      onMouseLeave={onClose}
+    >
+      {items.map(item => (
+        <div
+          key={item.label}
+          className="context-menu-item"
+          onClick={() => {
+            item.action();
+            onClose();
+          }}
+        >
+          {item.label}
+        </div>
+      ))}
+    </div>
+  );
+
+  const revertToLastVersion = useCallback(() => {
+    if (fileHistory.length === 0) return;
+    
+    const lastVersion = fileHistory[fileHistory.length - 1];
+    setFileContent(lastVersion.content);
+    setFileHistory(prev => prev.slice(0, -1));
+    setHasUnsavedChanges(true);
+  }, [fileHistory]);
+
+  const getFileIcon = (fileName) => {
+    const extension = fileName.split('.').pop().toLowerCase();
+    switch (extension) {
+      case 'js':
+        return <Icon path={mdiLanguageJavascript} size={1} />;
+      case 'jsx':
+        return <Icon path={mdiReact} size={1} />;
+      case 'json':
+        return <Icon path={mdiCodeJson} size={1} />;
+      case 'md':
+        return <Icon path={mdiLanguageMarkdown} size={1} />;
+      case 'css':
+        return <Icon path={mdiLanguageCss3} size={1} />;
+      case 'html':
+        return <Icon path={mdiLanguageHtml5} size={1} />;
+      case 'bat':
+        return <Icon path={mdiConsole} size={1} />;
+      case 'properties':
+        return <Icon path={mdiCog} size={1} />;
+      case 'kts':
+        return <Icon path={mdiLanguageKotlin} size={1} />;
+      default:
+        return <Icon path={mdiFile} size={1} />;
+    }
+  };
 
   useEffect(() => {
     fetchFileTree();
-  }, [projectId]);
+  }, [projectId, fetchFileTree]);
 
   useEffect(() => {
     const handleKeyDown = async (e) => {
@@ -701,6 +885,15 @@ const handleDelete = async (node) => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [currentFile, fileContent]);
+
+  useEffect(() => {
+    if (currentFile && hasUnsavedChanges) {
+      const interval = setInterval(() => {
+        saveFileContent(true);
+      }, AUTO_SAVE_INTERVAL);
+      return () => clearInterval(interval);
+    }
+  }, [currentFile, hasUnsavedChanges, saveFileContent]);
 
   return (
     <div className="workspace">
@@ -719,8 +912,8 @@ const handleDelete = async (node) => {
             />
           </div>
           <div className="button-group">
-            <button onClick={handleCreateFolder}>New Folder</button>
-            <button onClick={handleCreateFile}>New File</button>
+            <button onClick={handleCreateFolder}>새 폴더</button>
+            <button onClick={handleCreateFile}>새 파일</button>
           </div>
         </div>
         <ul
@@ -731,42 +924,68 @@ const handleDelete = async (node) => {
         >
           {searchResults ? (
             searchResults.map(node => (
-              <FileTreeNode key={node.id} node={node} />
+              <FileTreeNode
+                key={node.id}
+                node={node}
+                onContextMenu={handleContextMenu}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+              />
             ))
           ) : (
             fileTree.map(node => (
-              <FileTreeNode key={node.id} node={node} />
+              <FileTreeNode
+                key={node.id}
+                node={node}
+                onContextMenu={handleContextMenu}
+                onDragStart={handleDragStart}
+                onDragEnd={handleDragEnd}
+                onDragEnter={handleDragEnter}
+                onDragLeave={handleDragLeave}
+              />
             ))
           )}
         </ul>
       </div>
-  
+
       <div className="editor">
-  <div className="editor-header">
-    <div className="file-info">
-      {currentFile ? (
-        <>
-          <span className="file-icon">📄</span>
-          <span className="breadcrumb">
-            {fileTree
-              .find(f => f.id === currentFile)
-              ?.path.split('/')
-              .join(' / ')}
-          </span>
-        </>
-      ) : (
-        <span className="welcome-text">파일을 선택하세요</span>
-      )}
-    </div>
-    {currentFile && (
-      <button onClick={saveFileContent} className="save-button" title="Ctrl/Cmd + S">
-        💾 저장
-      </button>
-    )}
-  </div>
-  {loading ? (
-    <div className="loading">Loading...</div>
-  ) : (
+        <div className="editor-header">
+          <div className="file-info">
+            {currentFile ? (
+              <>
+                <BreadcrumbNav path={currentFile} />
+                {hasUnsavedChanges && <span className="unsaved-indicator">●</span>}
+              </>
+            ) : (
+              <span className="welcome-text">파일을 선택하세요</span>
+            )}
+          </div>
+          {currentFile && (
+            <div className="editor-actions">
+              {fileHistory.length > 0 && (
+                <button
+                  onClick={revertToLastVersion}
+                  className="revert-button"
+                  title="이전 버전으로 되돌리기"
+                >
+                  ↩️
+                </button>
+              )}
+              <button
+                onClick={() => saveFileContent(false)}
+                className={`save-button ${hasUnsavedChanges ? 'unsaved' : ''}`}
+                title="Ctrl/Cmd + S"
+              >
+                💾 저장
+              </button>
+            </div>
+          )}
+        </div>
+        {loading ? (
+          <div className="loading">Loading...</div>
+        ) : (
           <Editor
             height="calc(100vh - 40px)"
             defaultLanguage="javascript"
@@ -785,10 +1004,19 @@ const handleDelete = async (node) => {
               formatOnPaste: true,
               formatOnType: true
             }}
-            onChange={setFileContent}
+            onChange={handleEditorChange}
+            onMount={(editor) => {
+              editorRef.current = editor;
+            }}
           />
         )}
       </div>
+      {contextMenu && (
+        <ContextMenu
+          {...contextMenu}
+          onClose={() => setContextMenu(null)}
+        />
+      )}
     </div>
   );
 };

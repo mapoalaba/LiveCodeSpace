@@ -6,7 +6,7 @@ import Home from "./pages/Home";
 import Dashboard from "./pages/Dashboard";
 import NewProject from "./pages/NewProject";
 import Workspace from "./pages/Workspace";
-import PrivateRoute from "./components/PrivateRoute";
+import PrivateRoute from "./components/common/PrivateRoute";
 import Header from "./pages/Header";
 
 // Logout Button Component
@@ -59,7 +59,7 @@ function App() {
     <Router>
       <div>
         <Header />
-        {<nav style={{ padding: "10px", backgroundColor: "#282c34" }}>
+        {/* {<nav style={{ padding: "10px", backgroundColor: "#282c34" }}>
           <Link to="/" style={{ marginRight: "15px", color: "#61dafb" }}>
             Home
           </Link>
@@ -75,7 +75,7 @@ function App() {
           ) : (
             <LogoutButton onLogout={handleLogout} />
           )}
-        </nav>}
+        </nav>} */}
         <Routes>
           {/* Public Routes */}
           <Route path="/" element={<Navigate to="/home" />} />
