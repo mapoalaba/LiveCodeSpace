@@ -3,7 +3,8 @@ const {
   PutCommand, 
   ScanCommand, 
   GetCommand,
-  DeleteCommand 
+  DeleteCommand,
+  QueryCommand 
 } = require("@aws-sdk/lib-dynamodb");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { 
@@ -195,7 +196,7 @@ exports.createProject = async (req, res) => {
 
     // 키 존재 여부 검증
     if (!newProject.id || !newProject.projectId) {
-      throw new Error("필수 키 생성 실패");
+      throw new Error("필수 키 생��� 실패");
     }
 
     // DynamoDB에 프로젝트 저장
@@ -490,7 +491,7 @@ exports.deleteFolder = async (req, res) => {
 
   try {
     await deleteFolder(folderPath);
-    res.status(200).json({ message: "폴더가 성공적으로 삭제되었습니다." });
+    res.status(200).json({ message: "폴더가 성공적으로 삭제되���습니다." });
   } catch (error) {
     console.error("Error deleting folder:", error);
     res.status(500).json({ error: "폴더 삭제에 실패했습니다." });
@@ -584,7 +585,7 @@ exports.deleteProject = async (req, res) => {
   const { userId } = req.user;
 
   try {
-    // DynamoDB에서 프로젝트 정보 조회 - 수정된 부분
+    // DynamoDB에서 프로젝트 정보 조회
     const params = {
       TableName: "FileSystemItems",
       FilterExpression: "projectId = :projectId AND userId = :userId",
@@ -601,19 +602,39 @@ exports.deleteProject = async (req, res) => {
       return res.status(403).json({ error: "프로젝트를 찾을 수 없거나 삭제 권한이 없습니다." });
     }
 
-    // S3에서 프로젝트 관련 모든 파일 삭제
-    await deleteFolder(`${projectId}/`);
-
-    // DynamoDB에서 프로젝트 삭제 - 수정된 부분
-    const deleteCommand = {
+    // FileSystemItems 테이블에서 프로젝트와 관련된 모든 항목 조회
+    const fileSystemParams = {
       TableName: "FileSystemItems",
-      Key: { 
-        id: project.id  // 실제 항목의 ID를 사용
+      IndexName: "ByProject",
+      KeyConditionExpression: "projectId = :projectId",
+      ExpressionAttributeValues: {
+        ":projectId": projectId
       }
     };
 
-    await dynamoDB.send(new DeleteCommand(deleteCommand));
-    res.status(200).json({ message: "프로젝트가 성공적으로 삭제되었습니다." });
+    const fileSystemItems = await dynamoDB.send(new QueryCommand(fileSystemParams));
+
+    // S3에서 프로젝트 관련 모든 파일 삭제
+    await deleteFolder(`${projectId}/`);
+
+    // FileSystemItems 테이블에서 모든 관련 항목 삭제
+    const deletePromises = (fileSystemItems.Items || []).map(item => 
+      dynamoDB.send(new DeleteCommand({
+        TableName: "FileSystemItems",
+        Key: { id: item.id }
+      }))
+    );
+
+    // 병렬로 모든 삭제 작업 실행
+    await Promise.all(deletePromises);
+
+    // DynamoDB에서 프로젝트 자체 삭제
+    await dynamoDB.send(new DeleteCommand({
+      TableName: "FileSystemItems",
+      Key: { id: project.id }
+    }));
+
+    res.status(200).json({ message: "프로젝트와 관련 파일들이 성공적으로 삭제되었습니다." });
 
   } catch (error) {
     console.error("프로젝트 삭제 실패:", error);

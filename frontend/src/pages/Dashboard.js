@@ -63,7 +63,7 @@ const Dashboard = () => {
     }
   };
 
-  // 프로젝트 삭제 함수 추가
+  // 프로젝트 삭제 함수 수정
   const deleteProject = async (projectId) => {
     if (!window.confirm('정말로 이 프로젝트를 삭제하시겠습니까?')) {
       return;
@@ -85,6 +85,9 @@ const Dashboard = () => {
       if (!response.ok) {
         throw new Error("프로젝트 삭제에 실패했습니다.");
       }
+
+      const data = await response.json();
+      alert(data.message); // 성공 메시지 알림창 표시
 
       // 프로젝트 목록에서 삭제된 프로젝트 제거
       setProjects((prevProjects) => 
@@ -124,7 +127,9 @@ const Dashboard = () => {
         <ul>
           {projects.map((project) => (
             <li key={project.projectId}>
-              {project.projectName}
+              <span className="project-name" title={project.projectName}>
+                {project.projectName}
+              </span>
               <div className="button-group">
                 <button onClick={() => openProject(project.projectId)}>열기</button>
                 <button 
