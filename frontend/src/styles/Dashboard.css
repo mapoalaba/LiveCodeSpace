@@ -61,6 +61,12 @@
   border: 1px solid rgba(52, 152, 219, 0.1);
 }
 
+.project-dashboard li .button-group {
+  display: flex;
+  gap: 5px;
+  margin-left: auto;
+}
+
 .project-dashboard li:hover {
   transform: translateY(-5px);
   box-shadow: 0 8px 24px rgba(52, 152, 219, 0.12);
@@ -72,10 +78,21 @@
   font-size: 0.9rem;
   background-color: #e3f2fd;
   color: #2980b9;
+  border-radius: 10px;
 }
 
 .project-dashboard li button:hover {
   background-color: #3498db;
+  color: white;
+}
+
+.project-dashboard li button.delete-btn {
+  margin-left: 5px;
+  background-color: #ff4444;
+}
+
+.project-dashboard li button.delete-btn:hover {
+  background-color: #ff0000;
   color: white;
 }
 

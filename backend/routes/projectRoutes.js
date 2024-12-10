@@ -10,6 +10,7 @@ const {
   deleteFile,
   deleteFolder,
   renameItem,
+  deleteProject,
 } = require("../controllers/projectController");
 
 const router = express.Router();
@@ -22,6 +23,9 @@ router.post("/", verifyToken, createProject);
 
 // 특정 프로젝트 상세 조회
 router.get("/:projectId", verifyToken, getProjectById);
+
+// 프로젝트 삭제 라우트 추가
+router.delete("/:projectId", verifyToken, deleteProject);
 
 // 프로젝트 트리 조회
 router.get("/:projectId/tree", verifyToken, getProjectTree);

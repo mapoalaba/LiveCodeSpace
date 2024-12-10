@@ -63,6 +63,39 @@ const Dashboard = () => {
     }
   };
 
+  // 프로젝트 삭제 함수 추가
+  const deleteProject = async (projectId) => {
+    if (!window.confirm('정말로 이 프로젝트를 삭제하시겠습니까?')) {
+      return;
+    }
+
+    const token = localStorage.getItem("token");
+
+    try {
+      const response = await fetch(
+        `${process.env.REACT_APP_PROJECTS_API_URL}/${projectId}`, 
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("프로젝트 삭제에 실패했습니다.");
+      }
+
+      // 프로젝트 목록에서 삭제된 프로젝트 제거
+      setProjects((prevProjects) => 
+        prevProjects.filter((project) => project.projectId !== projectId)
+      );
+    } catch (err) {
+      console.error("프로젝트 삭제 오류:", err.message);
+      setError("프로젝트를 삭제할 수 없습니다.");
+    }
+  };
+
   // 특정 프로젝트로 이동
   const openProject = (projectId) => {
     navigate(`/workspace/${projectId}`);
@@ -92,7 +125,15 @@ const Dashboard = () => {
           {projects.map((project) => (
             <li key={project.projectId}>
               {project.projectName}
-              <button onClick={() => openProject(project.projectId)}>열기</button>
+              <div className="button-group">
+                <button onClick={() => openProject(project.projectId)}>열기</button>
+                <button 
+                  onClick={() => deleteProject(project.projectId)}
+                  className="delete-btn"
+                >
+                  삭제
+                </button>
+              </div>
             </li>
           ))}
         </ul>

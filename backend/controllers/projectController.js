@@ -2,7 +2,8 @@ const {
   DynamoDBDocumentClient, 
   PutCommand, 
   ScanCommand, 
-  GetCommand 
+  GetCommand,
+  DeleteCommand 
 } = require("@aws-sdk/lib-dynamodb");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { 
@@ -574,5 +575,48 @@ exports.renameItem = async (req, res) => {
   } catch (error) {
     console.error("Error renaming item:", error);
     res.status(500).json({ error: "이름 변경에 실패했습니다." });
+  }
+};
+
+// ** 프로젝트 삭제 **
+exports.deleteProject = async (req, res) => {
+  const { projectId } = req.params;
+  const { userId } = req.user;
+
+  try {
+    // DynamoDB에서 프로젝트 정보 조회 - 수정된 부분
+    const params = {
+      TableName: "FileSystemItems",
+      FilterExpression: "projectId = :projectId AND userId = :userId",
+      ExpressionAttributeValues: {
+        ":projectId": projectId,
+        ":userId": userId
+      }
+    };
+
+    const result = await dynamoDB.send(new ScanCommand(params));
+    const project = result.Items?.[0];
+    
+    if (!project) {
+      return res.status(403).json({ error: "프로젝트를 찾을 수 없거나 삭제 권한이 없습니다." });
+    }
+
+    // S3에서 프로젝트 관련 모든 파일 삭제
+    await deleteFolder(`${projectId}/`);
+
+    // DynamoDB에서 프로젝트 삭제 - 수정된 부분
+    const deleteCommand = {
+      TableName: "FileSystemItems",
+      Key: { 
+        id: project.id  // 실제 항목의 ID를 사용
+      }
+    };
+
+    await dynamoDB.send(new DeleteCommand(deleteCommand));
+    res.status(200).json({ message: "프로젝트가 성공적으로 삭제되었습니다." });
+
+  } catch (error) {
+    console.error("프로젝트 삭제 실패:", error);
+    res.status(500).json({ error: "프로젝트 삭제에 실패했습니다." });
   }
 };
