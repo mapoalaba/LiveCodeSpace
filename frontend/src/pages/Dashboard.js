@@ -59,7 +59,7 @@ const Dashboard = () => {
     }
   };
 
-  // 새 프로젝트 생성
+  // 새 프로젝트 생성 함수 수정
   const createNewProject = async () => {
     const projectName = prompt("새 프로젝트 이름을 입력하세요:");
     if (!projectName) return;
@@ -81,7 +81,12 @@ const Dashboard = () => {
       }
 
       const data = await response.json();
-      setProjects((prevProjects) => [...prevProjects, data.project]); // 리스트에 새 프로젝트 추가
+      // 새 프로젝트에 owner 역할 추가
+      const newProject = {
+        ...data.project,
+        role: 'owner'  // 생성자는 항상 owner
+      };
+      setProjects((prevProjects) => [...prevProjects, newProject]);
     } catch (err) {
       console.error("새 프로젝트 생성 오류:", err.message);
       setError("프로젝트를 생성할 수 없습니다. 다시 시도해주세요.");
@@ -266,19 +271,24 @@ const Dashboard = () => {
               </span>
               <div className="button-group">
                 <button onClick={() => openProject(project.projectId)}>열기</button>
-                <button 
-                  className="invite-button"
-                  onClick={() => inviteToProject(project.projectId)}
-                  style={{ backgroundColor: '#4CAF50', color: 'white' }}
-                >
-                  초대
-                </button>
-                <img 
-                  src={bin}
-                  alt="삭제"
-                  className="delete-icon"
-                  onClick={() => deleteProject(project.projectId)}
-                />
+                {/* owner인 경우에만 초대와 삭제 버튼 표시 */}
+                {project.role === 'owner' && (
+                  <>
+                    <button 
+                      className="invite-button"
+                      onClick={() => inviteToProject(project.projectId)}
+                      style={{ backgroundColor: '#4CAF50', color: 'white' }}
+                    >
+                      초대
+                    </button>
+                    <img 
+                      src={bin}
+                      alt="삭제"
+                      className="delete-icon"
+                      onClick={() => deleteProject(project.projectId)}
+                    />
+                  </>
+                )}
               </div>
             </li>
           ))}
@@ -287,6 +297,5 @@ const Dashboard = () => {
     </div>
   );
 };
-
 
 export default Dashboard;

@@ -223,6 +223,20 @@ exports.createProject = async (req, res) => {
 
     await s3Client.send(new PutObjectCommand(s3Command));
 
+    // ProjectMembers 테이블에 소유자를 멤버로 추가
+    const memberParams = {
+      TableName: "ProjectMembers",
+      Item: {
+        id: uuidv4(),
+        projectId: newProject.projectId,
+        userId,
+        role: "owner",
+        addedAt: new Date().toISOString()
+      }
+    };
+
+    await dynamoDB.send(new PutCommand(memberParams));
+
     // 초기 프로젝트 구조 생성 성공
     res.status(201).json({
       message: "프로젝트가 성공적으로 생성되었습니다.",
@@ -231,7 +245,9 @@ exports.createProject = async (req, res) => {
         projectId: newProject.projectId,
         projectName: newProject.projectName,
         createdAt: newProject.createdAt,
-        lastEditedAt: newProject.lastEditedAt
+        lastEditedAt: newProject.lastEditedAt,
+        userId: userId,  // userId 추가
+        role: 'owner'   // role 정보 추가
       }
     });
 
@@ -340,7 +356,13 @@ exports.getUserProjects = async (req, res) => {
       new Map(allProjects.map(project => [project.projectId, project])).values()
     );
 
-    res.json(uniqueProjects);
+    // 각 프로젝트에 권한 정보 추가
+    const projectsWithRole = uniqueProjects.map(project => ({
+      ...project,
+      role: project.userId === userId ? 'owner' : 'member'
+    }));
+
+    res.json(projectsWithRole);
 
   } catch (error) {
     console.error("프로젝트 목록 조회 실패:", error);
@@ -581,7 +603,7 @@ exports.renameItem = async (req, res) => {
 
     try {
       await s3Client.send(new HeadObjectCommand(checkParams));
-      return res.status(400).json({ error: "이미 같은 이름의 ��목이 존재합니다." });
+      return res.status(400).json({ error: "이미 같은 이름의 항목이 존재합니다." });
     } catch (error) {
       // 항목이 없으면 정상적으로 진행
       if (error.name !== 'NotFound') throw error;
@@ -744,7 +766,22 @@ exports.inviteToProject = async (req, res) => {
       return res.status(404).json({ error: "존재하지 않는 사용자입니다." });
     }
 
-    // 3. 중복 초대 확인
+    // 3. 이미 프로젝트 멤버인지 확인 (새로운 코드)
+    const memberCheckParams = {
+      TableName: "ProjectMembers",
+      FilterExpression: "projectId = :projectId AND userId = :inviteeId",
+      ExpressionAttributeValues: {
+        ":projectId": projectId,
+        ":inviteeId": invitedUser.userId
+      }
+    };
+
+    const existingMember = await dynamoDB.send(new ScanCommand(memberCheckParams));
+    if (existingMember.Items?.length > 0) {
+      return res.status(400).json({ error: "이미 프로젝트 멤버인 사용자입니다." });
+    }
+
+    // 4. 중복 초대 확인
     const existingInviteParams = {
       TableName: "ProjectInvites",  // Changed from ProjectInvitations
       FilterExpression: "projectId = :projectId AND inviteeId = :inviteeId AND #status = :status",
