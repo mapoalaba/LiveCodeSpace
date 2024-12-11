@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState, forwardRef, useImperativeHandle } from 'react';
+import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
@@ -8,56 +8,18 @@ import 'xterm/css/xterm.css';
 
 const TerminalComponent = forwardRef(({ projectId }, ref) => {
   const terminalRef = useRef(null);
-  const [terminal, setTerminal] = useState(null);
-  const [socket, setSocket] = useState(null);
+  const socketRef = useRef(null);
+  const xtermRef = useRef(null);
   const fitAddonRef = useRef(null);
   const searchAddonRef = useRef(null);
-  const [inputBuffer, setInputBuffer] = useState('');
-  const [commandHistory, setCommandHistory] = useState([]);
-  const [historyIndex, setHistoryIndex] = useState(-1);
-  const [currentInput, setCurrentInput] = useState('');
-  const [processes, setProcesses] = useState([]);
-  const [suggestions, setSuggestions] = useState([]);
+  const commandBufferRef = useRef('');
 
-  // 기본 명령어 목록
-  const commands = [
-    'npm', 'node', 'git', 'ls', 'cd', 'mkdir', 'rm', 'cp', 'mv',
-    'touch', 'cat', 'echo', 'pwd', 'clear'
-  ];
-
-  // 자동 완성 함수
-  const handleTabComplete = (input) => {
-    const words = input.split(' ');
-    const lastWord = words[words.length - 1];
-    
-    const matches = commands.filter(cmd => 
-      cmd.toLowerCase().startsWith(lastWord.toLowerCase())
-    );
-
-    if (matches.length === 1) {
-      words[words.length - 1] = matches[0];
-      return words.join(' ');
-    } else if (matches.length > 1) {
-      if (terminal) {
-        terminal.write('\r\n' + matches.join('  ') + '\r\n');
-        terminal.write('\r\n$ ' + input);
-      }
-      setSuggestions(matches);
-      return input;
-    }
-    return input;
-  };
-
-  // 터미널 클리어 함수
-  const clearTerminal = () => {
-    if (terminal) {
-      terminal.clear();
-    }
-  };
-
-  // 외부에서 접근 가능한 메서드 설정
   useImperativeHandle(ref, () => ({
-    clear: clearTerminal,
+    clear: () => {
+      if (xtermRef.current) {
+        xtermRef.current.clear();
+      }
+    },
     search: (query) => {
       if (searchAddonRef.current) {
         searchAddonRef.current.findNext(query);
@@ -66,185 +28,149 @@ const TerminalComponent = forwardRef(({ projectId }, ref) => {
   }));
 
   useEffect(() => {
-    const initializeTerminal = () => {
+    const initTerminal = async () => {
       if (!terminalRef.current) return;
 
-      // 터미널 초기화
-      const term = new Terminal({
-        cursorBlink: true,
-        fontSize: 14,
-        fontFamily: 'Menlo, Monaco, "Courier New", monospace',
-        theme: {
-          background: '#1e1e1e',
-          foreground: '#ffffff'
-        },
-        allowTransparency: true
-      });
+      try {
+        // 터미널 설정
+        const term = new Terminal({
+          cursorBlink: true,
+          fontSize: 14,
+          fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+          theme: {
+            background: '#1e1e1e',
+            foreground: '#ffffff',
+            cursor: '#ffffff'
+          },
+          allowTransparency: true,
+          scrollback: 1000,
+          rows: 24,
+          cols: 80,
+          convertEol: true,
+          cursorStyle: 'block'
+        });
 
-      // 애드온 설정
-      fitAddonRef.current = new FitAddon();
-      searchAddonRef.current = new SearchAddon();
-      const webLinksAddon = new WebLinksAddon();
+        // 애드온 설정
+        const fitAddon = new FitAddon();
+        const searchAddon = new SearchAddon();
+        const webLinksAddon = new WebLinksAddon();
 
-      term.loadAddon(fitAddonRef.current);
-      term.loadAddon(searchAddonRef.current);
-      term.loadAddon(webLinksAddon);
+        term.loadAddon(fitAddon);
+        term.loadAddon(searchAddon);
+        term.loadAddon(webLinksAddon);
 
-      // 터미널을 DOM에 부착
-      term.open(terminalRef.current);
-      setTerminal(term);
+        // 참조 저장
+        xtermRef.current = term;
+        fitAddonRef.current = fitAddon;
+        searchAddonRef.current = searchAddon;
 
-      // 소켓 연결
-      const newSocket = io('http://localhost:5001', {
-        reconnection: true,
-        reconnectionAttempts: 5,
-        reconnectionDelay: 1000,
-        withCredentials: true,
-        transports: ['websocket', 'polling']
-      });
-
-      // 소켓 이벤트 핸들러 설정
-      newSocket.on('connect', () => {
-        console.log('Socket connected');
-        newSocket.emit('join-terminal', { projectId });
-        term.write('\r\n\x1b[1;34m Welcome to the project terminal! \x1b[0m\r\n');
-        term.write('\r\n\x1b[32m✓ Connected to terminal server\x1b[0m\r\n$ ');
-      });
-
-      newSocket.on('terminal-output', (data) => {
-        term.write(data);
-      });
-
-      newSocket.on('connect_error', (error) => {
-        console.error('Socket connection error:', error);
-        term.write('\r\n\x1b[31mError: Failed to connect to terminal server (Port 5001)\x1b[0m\r\n');
-      });
-
-      newSocket.on('reconnect', (attemptNumber) => {
-        console.log('Socket reconnected after', attemptNumber, 'attempts');
-        term.write('\r\n\x1b[32m✓ Reconnected to terminal server\x1b[0m\r\n');
-      });
-
-      newSocket.on('process-update', (data) => {
-        setProcesses(data.processes);
-      });
-
-      // 터미널 입력 처리
-      term.onData((data) => {
-        // Tab key
-        if (data === '\t') {
-          const completedInput = handleTabComplete(inputBuffer);
-          if (completedInput !== inputBuffer) {
-            term.write('\r\x1b[K$ ' + completedInput);
-            setInputBuffer(completedInput);
-          }
-        }
-        // Enter key
-        else if (data === '\r') {
-          if (inputBuffer) {
-            newSocket.emit('terminal-input', {
-              projectId,
-              data: inputBuffer + '\n',
-              timestamp: new Date().toISOString()
-            });
-            setCommandHistory(prev => [inputBuffer, ...prev]);
-            setInputBuffer('');
-            setHistoryIndex(-1);
-            setSuggestions([]);
-          }
-          term.write('\r\n');
-        }
-        // Up arrow
-        else if (data === '\x1b[A') {
-          if (historyIndex < commandHistory.length - 1) {
-            const newIndex = historyIndex + 1;
-            setHistoryIndex(newIndex);
-            const command = commandHistory[newIndex];
-            term.write('\r\x1b[K$ ' + command);
-            setInputBuffer(command);
-          }
-        }
-        // Down arrow
-        else if (data === '\x1b[B') {
-          if (historyIndex > -1) {
-            const newIndex = historyIndex - 1;
-            setHistoryIndex(newIndex);
-            const command = newIndex === -1 ? '' : commandHistory[newIndex];
-            term.write('\r\x1b[K$ ' + command);
-            setInputBuffer(command);
-          }
-        }
-        // Backspace
-        else if (data === '\x7f') {
-          if (inputBuffer.length > 0) {
-            term.write('\b \b');
-            setInputBuffer(prev => prev.slice(0, -1));
-          }
-        }
-        // Regular input
-        else {
-          term.write(data);
-          setInputBuffer(prev => prev + data);
-        }
-      });
-
-      setSocket(newSocket);
-
-      // ResizeObserver 설정
-      const resizeObserver = new ResizeObserver(() => {
-        if (fitAddonRef.current && terminalRef.current?.offsetHeight > 0) {
+        // DOM에 터미널 연결
+        term.open(terminalRef.current);
+        
+        // 초기 크기 조정
+        setTimeout(() => {
           try {
-            fitAddonRef.current.fit();
-            if (term && newSocket) {
-              newSocket.emit('terminal-resize', {
-                projectId,
+            fitAddon.fit();
+          } catch (error) {
+            console.error('Initial fit failed:', error);
+          }
+        }, 100);
+
+        // 소켓 연결
+        const socket = io('http://localhost:5001', {
+          transports: ['websocket'],
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000
+        });
+
+        socketRef.current = socket;
+
+        // 소켓 이벤트 핸들러
+        socket.on('connect', () => {
+          console.log('Socket connected');
+          socket.emit('join-terminal', { projectId });
+          term.write('\r\n\x1b[32mTerminal connected\x1b[0m\r\n$ ');
+        });
+
+        socket.on('disconnect', () => {
+          console.log('Socket disconnected');
+          term.write('\r\n\x1b[31mConnection lost. Reconnecting...\x1b[0m\r\n');
+        });
+
+        socket.on('terminal-output', (data) => {
+          try {
+            term.write(data);
+          } catch (error) {
+            console.error('Error writing terminal output:', error);
+          }
+        });
+
+        socket.on('terminal-error', ({ error }) => {
+          try {
+            term.write(`\r\n\x1b[31mError: ${error}\x1b[0m\r\n$ `);
+          } catch (error) {
+            console.error('Error writing terminal error:', error);
+          }
+        });
+
+        // 입력 처리
+        term.onData((data) => {
+          try {
+            socket.emit('terminal-input', {
+              projectId,
+              data
+            });
+          } catch (error) {
+            console.error('Error sending terminal input:', error);
+          }
+        });
+
+        // 크기 조정 처리
+        const resizeObserver = new ResizeObserver(() => {
+          requestAnimationFrame(() => {
+            try {
+              fitAddon.fit();
+              socket.emit('terminal-resize', {
                 cols: term.cols,
                 rows: term.rows
               });
+            } catch (error) {
+              console.error('Resize failed:', error);
             }
-            term.scrollToBottom();
+          });
+        });
+
+        resizeObserver.observe(terminalRef.current);
+
+        // 클린업
+        return () => {
+          try {
+            resizeObserver.disconnect();
+            socket.disconnect();
+            term.dispose();
           } catch (error) {
-            console.error('Error fitting terminal:', error);
+            console.error('Cleanup failed:', error);
           }
-        }
-      });
-
-      resizeObserver.observe(terminalRef.current);
-
-      // 클린업
-      return () => {
-        resizeObserver.disconnect();
-        if (newSocket) {
-          newSocket.disconnect();
-        }
-        term.dispose();
-      };
+        };
+      } catch (error) {
+        console.error('Terminal initialization failed:', error);
+      }
     };
 
-    initializeTerminal();
+    initTerminal();
   }, [projectId]);
 
-  // 프로세스 모니터링
-  useEffect(() => {
-    socket?.on('process-update', (data) => {
-      setProcesses(data.processes);
-    });
-
-    return () => {
-      socket?.off('process-update');
-    };
-  }, [socket]);
-
   return (
-    <div 
-      className="terminal-container" 
+    <div
       ref={terminalRef}
+      className="terminal-container"
       style={{
         height: '100%',
         width: '100%',
-        padding: '4px',
+        overflow: 'hidden',
         backgroundColor: '#1e1e1e',
-        overflow: 'hidden'
+        padding: '4px'
       }}
     />
   );

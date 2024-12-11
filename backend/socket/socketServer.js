@@ -1,44 +1,35 @@
 const pty = require('node-pty');
 const os = require('os');
-const path = require('path');
 
-// 터미널 세션 저장소
 const terminals = new Map();
 
 module.exports = (io) => {
   io.on("connection", (socket) => {
-    console.log("새로운 소켓 연결:", socket.id);
+    console.log("[Socket.IO] User connected:", socket.id);
 
-    // 프로젝트 참가
-    socket.on("joinProject", (projectId) => {
-      socket.join(projectId);
-      console.log(`Client ${socket.id} joined project ${projectId}`);
-    });
-
-    // 코드 변경 이벤트
-    socket.on("codeChange", ({ projectId, code }) => {
-      socket.to(projectId).emit("codeUpdate", { code });
-    });
-
-    // 터미널 세션 참가
-    socket.on('join-terminal', async ({ projectId }) => {
+    socket.on('join-terminal', ({ projectId }) => {
       try {
-        console.log('터미널 세션 참가:', projectId);
-        
-        // 터미널 세션 ID 생성
+        console.log("Client joined terminal:", projectId);
         const terminalId = `${projectId}-${socket.id}`;
         
-        // 프로젝트 디렉토리 설정
-        const projectDir = path.join(process.cwd(), 'projects', projectId);
-        
-        // 쉘 프로세스 생성
+        // 터미널 프로세스 생성
         const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
         const term = pty.spawn(shell, [], {
           name: 'xterm-color',
           cols: 80,
           rows: 24,
-          cwd: projectDir,
-          env: process.env
+          env: { 
+            ...process.env, 
+            TERM: 'xterm-256color',
+            PROJECT_ID: projectId
+          }
+        });
+
+        // 터미널 저장
+        terminals.set(terminalId, {
+          term,
+          projectId,
+          lastActivity: Date.now()
         });
 
         // 터미널 출력 처리
@@ -46,94 +37,82 @@ module.exports = (io) => {
           socket.emit('terminal-output', data);
         });
 
-        // 터미널 저장
-        terminals.set(terminalId, {
-          term,
-          projectId
+        console.log("Terminal created for project", projectId);
+        term.write(`\r\nWelcome to project ${projectId}\r\n`);
+
+        // 터미널 입력 처리
+        socket.on('terminal-input', ({ projectId: inputProjectId, data }) => {
+          const terminal = terminals.get(terminalId);
+          if (terminal?.term) {
+            try {
+              terminal.lastActivity = Date.now();
+              terminal.term.write(data);
+            } catch (error) {
+              console.error('Terminal input error:', error);
+              socket.emit('terminal-error', { error: 'Failed to process input' });
+            }
+          }
         });
 
-        console.log(`Terminal created for project ${projectId}`);
+        // 터미널 크기 조정
+        socket.on('terminal-resize', ({ cols, rows }) => {
+          const terminal = terminals.get(terminalId);
+          if (!terminal?.term) {
+            console.log('Terminal not found for resize');
+            return;
+          }
+
+          try {
+            if (cols > 0 && rows > 0) {  // 유효한 크기인지 확인
+              terminal.term.resize(cols, rows);
+              console.log(`Terminal resized to ${cols}x${rows}`);
+            }
+          } catch (error) {
+            console.error('Terminal resize error:', error);
+            // 에러를 클라이언트에 알림
+            socket.emit('terminal-error', { 
+              error: 'Failed to resize terminal' 
+            });
+          }
+        });
+
+        // 연결 해제 시 정리
+        socket.on('disconnect', () => {
+          try {
+            console.log("Cleaning up terminal:", terminalId);
+            const terminal = terminals.get(terminalId);
+            if (terminal?.term) {
+              terminal.term.kill();
+              terminals.delete(terminalId);
+              console.log(`Terminal ${terminalId} cleaned up`);
+            }
+          } catch (error) {
+            console.error('Terminal cleanup error:', error);
+          }
+        });
+
       } catch (error) {
-        console.error('터미널 생성 실패:', error);
+        console.error("Terminal creation error:", error);
         socket.emit('terminal-error', { 
           error: 'Failed to create terminal session' 
         });
       }
     });
-
-    // 터미널 입력 처리
-    socket.on('terminal-input', async ({ projectId, data }) => {
-      try {
-        const terminalId = `${projectId}-${socket.id}`;
-        const terminal = terminals.get(terminalId);
-
-        if (terminal && terminal.term) {
-          terminal.term.write(data);
-        } else {
-          throw new Error('Terminal session not found');
-        }
-      } catch (error) {
-        console.error('터미널 입력 처리 실패:', error);
-        socket.emit('terminal-error', { 
-          error: 'Failed to process terminal input' 
-        });
-      }
-    });
-
-    // 터미널 크기 조정
-    socket.on('terminal-resize', ({ projectId, cols, rows }) => {
-      try {
-        const terminalId = `${projectId}-${socket.id}`;
-        const terminal = terminals.get(terminalId);
-        
-        if (terminal && terminal.term) {
-          terminal.term.resize(cols, rows);
-        }
-      } catch (error) {
-        console.error('터미널 크기 조정 실패:', error);
-      }
-    });
-
-    // 연결 해제 시 터미널 정리
-    socket.on('disconnect', () => {
-      try {
-        console.log('소켓 연결 해제:', socket.id);
-        
-        // 해당 소켓의 모든 터미널 찾아서 정리
-        for (const [terminalId, terminal] of terminals.entries()) {
-          if (terminalId.includes(socket.id)) {
-            terminal.term.kill();
-            terminals.delete(terminalId);
-            console.log(`Terminal ${terminalId} cleaned up`);
-          }
-        }
-      } catch (error) {
-        console.error('터미널 정리 중 에러:', error);
-      }
-    });
-
-    // 에러 처리
-    socket.on('error', (error) => {
-      console.error('Socket error:', error);
-      socket.emit('terminal-error', { 
-        error: 'Internal socket error' 
-      });
-    });
   });
 
-  // 주기적으로 비활성 터미널 정리
+  // 비활성 터미널 정리
   setInterval(() => {
-    try {
-      const now = Date.now();
-      for (const [terminalId, terminal] of terminals.entries()) {
-        if (now - terminal.lastActivity > 1000 * 60 * 30) { // 30분 이상 비활성
+    const now = Date.now();
+    for (const [terminalId, terminal] of terminals.entries()) {
+      if (now - terminal.lastActivity > 30 * 60 * 1000) {
+        try {
           terminal.term.kill();
           terminals.delete(terminalId);
           console.log(`Inactive terminal ${terminalId} cleaned up`);
+        } catch (error) {
+          console.error('Terminal cleanup error:', error);
         }
       }
-    } catch (error) {
-      console.error('터미널 정리 중 에러:', error);
     }
-  }, 1000 * 60 * 5); // 5분마다 체크
+  }, 5 * 60 * 1000);
 };
