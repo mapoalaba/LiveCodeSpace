@@ -198,12 +198,10 @@ const Dashboard = () => {
       return;
     }
 
-    // Promise.all을 사용하여 두 요청을 병렬로 처리
-    Promise.all([fetchProjects(), fetchInvitations()])
-      .catch(error => {
-        console.error("대시보드 초기화 오류:", error);
-      });
-  }, [navigate]);
+    // 프로젝트 목록과 초대 목록을 별도로 가져오기
+    fetchProjects();
+    fetchInvitations();
+  }, [navigate]); // Promise.all 제거하고 각각 호출
 
   // 초대 목록 가져오기 
   const fetchInvitations = async () => {

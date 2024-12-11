@@ -278,18 +278,11 @@ exports.getProjectById = async (req, res) => {
 
 // ** 사용자 프로젝트 목록 조회 **
 exports.getUserProjects = async (req, res) => {
-  console.log("1. getUserProjects 호출됨");
-  console.log("2. 받은 req.user:", req.user);
   const { userId } = req.user;
 
   try {
-    console.log("3. userId 값:", userId);
-    if (!userId) {
-      console.log("4. userId가 없음!");
-      return res.status(400).json({ error: "사용자 ID가 필요합니다." });
-    }
-
-    const params = {
+    // 1. 사용자가 소유한 프로젝트 조회
+    const ownedProjectsParams = {
       TableName: "FileSystemItems",
       FilterExpression: "userId = :userId AND #type = :type",
       ExpressionAttributeNames: {
@@ -301,26 +294,57 @@ exports.getUserProjects = async (req, res) => {
       }
     };
 
-    console.log("5. DynamoDB 쿼리 파라미터:", JSON.stringify(params, null, 2));
-    
-    const result = await dynamoDB.send(new ScanCommand(params));
-    console.log("6. DynamoDB 조회 결과:", JSON.stringify(result, null, 2));
-    
-    if (!result.Items) {
-      console.log("7. 조회 결과 없음");
-      return res.json([]);  // 결과가 없으면 빈 배열 반환
-    }
+    // 2. ProjectMembers 테이블에서 사용자가 멤버로 있는 프로젝트 ID 조회
+    const memberProjectsParams = {
+      TableName: "ProjectMembers",
+      FilterExpression: "userId = :userId",
+      ExpressionAttributeValues: {
+        ":userId": userId
+      }
+    };
 
-    console.log("8. 최종 반환 데이터:", JSON.stringify(result.Items, null, 2));
-    res.json(result.Items);
-  } catch (error) {
-    console.error("9. 에러 발생:", {
-      errorName: error.name,
-      errorMessage: error.message,
-      errorStack: error.stack,
-      userId: userId
+    const [ownedProjectsResult, memberProjectsResult] = await Promise.all([
+      dynamoDB.send(new ScanCommand(ownedProjectsParams)),
+      dynamoDB.send(new ScanCommand(memberProjectsParams))
+    ]);
+
+    // 3. 멤버로 참여하는 프로젝트들의 상세 정보 조회
+    const memberProjectIds = memberProjectsResult.Items?.map(item => item.projectId) || [];
+    const memberProjectsDetailsPromises = memberProjectIds.map(async (projectId) => {
+      const projectParams = {
+        TableName: "FileSystemItems",
+        FilterExpression: "projectId = :projectId AND #type = :type",
+        ExpressionAttributeNames: {
+          "#type": "type"
+        },
+        ExpressionAttributeValues: {
+          ":projectId": projectId,
+          ":type": "project"
+        }
+      };
+      
+      const projectResult = await dynamoDB.send(new ScanCommand(projectParams));
+      return projectResult.Items?.[0];
     });
-    res.status(500).json({ 
+
+    const memberProjects = (await Promise.all(memberProjectsDetailsPromises)).filter(Boolean);
+
+    // 4. 소유 프로젝트와 멤버 프로젝트 합치기 (중복 제거)
+    const allProjects = [
+      ...(ownedProjectsResult.Items || []),
+      ...memberProjects
+    ];
+
+    // 중복 제거 (projectId 기준)
+    const uniqueProjects = Array.from(
+      new Map(allProjects.map(project => [project.projectId, project])).values()
+    );
+
+    res.json(uniqueProjects);
+
+  } catch (error) {
+    console.error("프로젝트 목록 조회 실패:", error);
+    res.status(500).json({
       error: "프로젝트 목록을 가져오는데 실패했습니다.",
       details: process.env.NODE_ENV === 'development' ? error.message : undefined
     });
@@ -557,7 +581,7 @@ exports.renameItem = async (req, res) => {
 
     try {
       await s3Client.send(new HeadObjectCommand(checkParams));
-      return res.status(400).json({ error: "이미 같은 이름의 항목이 존재합니다." });
+      return res.status(400).json({ error: "이미 같은 이름의 ��목이 존재합니다." });
     } catch (error) {
       // 항목이 없으면 정상적으로 진행
       if (error.name !== 'NotFound') throw error;
