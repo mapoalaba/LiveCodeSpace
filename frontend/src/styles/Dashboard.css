@@ -92,6 +92,7 @@
   cursor: pointer;
   transition: transform 0.2s ease;
   margin-left: 10px;
+  margin-top: 8px;
 }
 
 .delete-icon:hover {
