@@ -168,6 +168,7 @@
 .member-item {
   display: flex;
   align-items: center;
+  justify-content: space-between;
   padding: 0.8rem;
   border-radius: 8px;
   margin-bottom: 0.5rem;
@@ -218,4 +219,19 @@
   text-overflow: ellipsis;
   max-width: 120px;
   cursor: default;
+}
+
+.member-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.member-item .delete-icon {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.member-item .delete-icon:hover {
+  transform: scale(1.1);
 }

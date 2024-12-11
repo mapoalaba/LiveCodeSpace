@@ -15,6 +15,7 @@ const {
   acceptInvitation,
   getInvitations,
   getProjectMembers, // Add this line
+  removeMember, // Add this line
 } = require("../controllers/projectController");
 
 const router = express.Router();
@@ -61,6 +62,9 @@ router.put('/:projectId/rename', verifyToken, renameItem);
 
 // 프로젝트 멤버 조회
 router.get("/:projectId/members", verifyToken, getProjectMembers);
+
+// 프로젝트 멤버 삭제
+router.delete("/:projectId/members/:userId", verifyToken, asyncHandler(removeMember));
 
 // 글로벌 에러 핸들러 추가
 router.use((err, req, res, next) => {

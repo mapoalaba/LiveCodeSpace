@@ -266,9 +266,43 @@ const Dashboard = () => {
     }
   };
 
+  // 프로젝트 멤버 삭제 함수 추가
+  const removeMember = async (projectId, memberUserId) => {
+    try {
+      const response = await fetch(
+        `${process.env.REACT_APP_PROJECTS_API_URL}/${projectId}/members/${memberUserId}`,
+        {
+          method: "DELETE",
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("멤버 삭제에 실패했습니다.");
+      }
+
+      // 멤버 목록 업데이트
+      setSelectedProjectMembers(prevMembers => 
+        prevMembers.filter(member => member.userId !== memberUserId)
+      );
+
+      // 성공 메시지 표시
+      alert("멤버가 성공적으로 삭제되었습니다.");
+    } catch (error) {
+      console.error("멤버 삭제 오류:", error);
+      alert("멤버 삭제에 실패했습니다.");
+    }
+  };
+
   // 멤버 목록 Modal 컴포넌트
   const MembersModal = () => {
     if (!showMembersModal) return null;
+
+    // 현재 프로젝트에서 사용자의 역할 확인
+    const currentProject = projects.find(p => p.projectName === selectedProjectName);
+    const isOwner = currentProject?.role === 'owner';
 
     return (
       <div className="modal-backdrop" onClick={() => setShowMembersModal(false)}>
@@ -283,12 +317,27 @@ const Dashboard = () => {
             </button>
           </div>
           <ul className="members-list">
-            {selectedProjectMembers.map((member, index) => (
-              <li key={index} className="member-item">
+            {selectedProjectMembers.map((member) => (
+              <li key={member.userId} className="member-item">
                 <span className="member-email">{member.email}</span>
-                <span className={`member-role role-${member.role}`}>
-                  {member.role === 'owner' ? '소유자' : '멤버'}
-                </span>
+                <div className="member-actions">
+                  <span className={`member-role role-${member.role}`}>
+                    {member.role === 'owner' ? '소유자' : '멤버'}
+                  </span>
+                  {isOwner && member.role === 'member' && (
+                    <img
+                      src={bin}
+                      alt="멤버 삭제"
+                      className="delete-icon"
+                      onClick={() => {
+                        if (window.confirm(`${member.email}을(를) 프로젝트에서 삭제하시겠습니까?`)) {
+                          removeMember(currentProject.projectId, member.userId);
+                        }
+                      }}
+                      style={{ marginLeft: '10px', width: '20px', height: '20px' }}
+                    />
+                  )}
+                </div>
               </li>
             ))}
           </ul>

@@ -1027,7 +1027,6 @@ exports.getProjectMembers = async (req, res) => {
 
     const memberResult = await dynamoDB.send(new ScanCommand(memberParams));
     
-    // 각 멤버의 이메일 정보 가져오기
     const memberPromises = memberResult.Items.map(async (member) => {
       const userParams = {
         TableName: "Users",
@@ -1041,6 +1040,7 @@ exports.getProjectMembers = async (req, res) => {
       const user = userResult.Items[0];
       
       return {
+        userId: member.userId,  // userId 추가
         email: user.email,
         role: member.role
       };
@@ -1060,5 +1060,64 @@ exports.getProjectMembers = async (req, res) => {
   } catch (error) {
     console.error("프로젝트 멤버 조회 실패:", error);
     res.status(500).json({ error: "멤버 목록을 가져오는데 실패했습니다." });
+  }
+};
+
+// 프로젝트 멤버 삭제
+exports.removeMember = async (req, res) => {
+  const { projectId, userId: memberToRemove } = req.params;
+  const { userId } = req.user;
+
+  try {
+    // 요청한 사용자가 owner인지 확인
+    const ownerCheckParams = {
+      TableName: "ProjectMembers",
+      FilterExpression: "projectId = :projectId AND userId = :userId AND #role = :role",
+      ExpressionAttributeNames: {
+        "#role": "role"
+      },
+      ExpressionAttributeValues: {
+        ":projectId": projectId,
+        ":userId": userId,
+        ":role": "owner"
+      }
+    };
+
+    const ownerResult = await dynamoDB.send(new ScanCommand(ownerCheckParams));
+    if (!ownerResult.Items?.length) {
+      return res.status(403).json({ error: "프로젝트 소유자만 멤버를 삭제할 수 있습니다." });
+    }
+
+    // 삭제할 멤버 찾기
+    const memberParams = {
+      TableName: "ProjectMembers",
+      FilterExpression: "projectId = :projectId AND userId = :userId AND #role = :role",
+      ExpressionAttributeNames: {
+        "#role": "role"
+      },
+      ExpressionAttributeValues: {
+        ":projectId": projectId,
+        ":userId": memberToRemove,
+        ":role": "member"
+      }
+    };
+
+    const memberResult = await dynamoDB.send(new ScanCommand(memberParams));
+    const memberToDelete = memberResult.Items?.[0];
+
+    if (!memberToDelete) {
+      return res.status(404).json({ error: "삭제할 멤버를 찾을 수 없습니다." });
+    }
+
+    // 멤버 삭제
+    await dynamoDB.send(new DeleteCommand({
+      TableName: "ProjectMembers",
+      Key: { id: memberToDelete.id }
+    }));
+
+    res.status(200).json({ message: "멤버가 성공적으로 삭제되었습니다." });
+  } catch (error) {
+    console.error("멤버 삭제 실패:", error);
+    res.status(500).json({ error: "멤버 삭제에 실패했습니다." });
   }
 };
