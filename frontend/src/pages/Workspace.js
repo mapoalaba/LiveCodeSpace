@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback, useRef } from "react";
+import React, { useState, useEffect, useCallback, useRef, terminalRef } from "react";
 import { useParams } from "react-router-dom";
 import { Editor } from "@monaco-editor/react";
 import { Icon } from '@mdi/react';
@@ -12,9 +12,17 @@ import {
   mdiConsole,
   mdiCog,
   mdiLanguageKotlin,
-  mdiFile
+  mdiFile,
+    mdiArrowRight, 
+  mdiArrowDown, 
+  mdiViewSplitVertical, 
+  mdiMagnify 
 } from '@mdi/js';
 import "../styles/Workspace.css";
+import TerminalComponent from './TerminalComponent';
+import TerminalTabs from '../components/TerminalTabs';
+import TerminalControls from '../components/TerminalControls';
+import TerminalSearch from '../components/TerminalSearch';
 
 
 const Workspace = () => {
@@ -32,8 +40,15 @@ const Workspace = () => {
   const [fileHistory, setFileHistory] = useState([]);
   const [contextMenu, setContextMenu] = useState(null);
   const [draggedNode, setDraggedNode] = useState(null);
+  const [showTerminal, setShowTerminal] = useState(false);
+  const [terminalHeight, setTerminalHeight] = useState(300); // 기본 높이
   const editorRef = useRef(null);
   const autoSaveIntervalRef = useRef(null);
+  const [terminalPosition, setTerminalPosition] = useState('bottom');
+  const [terminals, setTerminals] = useState([{ id: 1, active: true, title: 'Terminal 1' }]);
+  const [activeTerminalId, setActiveTerminalId] = useState(1);
+  const [showTerminalSearch, setShowTerminalSearch] = useState(false);
+  const [splitTerminal, setSplitTerminal] = useState(false);
 
   // 자동 저장 설정
   const AUTO_SAVE_INTERVAL = 30000; // 30초
@@ -868,6 +883,101 @@ const Workspace = () => {
     }
   };
 
+  // 터미널
+  const handleResizeTerminal = (e) => {
+    const newHeight = Math.max(100, Math.min(500, e.clientY - e.target.getBoundingClientRect().top + terminalHeight));
+    setTerminalHeight(newHeight);
+  };
+
+  // 터미널 관리 핸들러
+const handleAddTerminal = () => {
+  const newId = Math.max(...terminals.map(t => t.id)) + 1;
+  setTerminals(prev => [...prev, { 
+    id: newId, 
+    active: true, 
+    title: `Terminal ${newId}` 
+  }]);
+  setActiveTerminalId(newId);
+};
+
+const handleCloseTerminal = (id) => {
+  if (terminals.length > 1) {
+    setTerminals(prev => prev.filter(t => t.id !== id));
+    if (activeTerminalId === id) {
+      setActiveTerminalId(terminals[0].id);
+    }
+  }
+};
+
+const handleTerminalSelect = (id) => {
+  setActiveTerminalId(id);
+};
+
+const handleTerminalSplit = () => {
+  setSplitTerminal(prev => !prev);
+};
+
+const handlePositionChange = () => {
+  setTerminalPosition(prev => prev === 'bottom' ? 'right' : 'bottom');
+};
+
+  const clearActiveTerminal = () => {
+    if (terminalRef.current) {
+        terminalRef.current.clear();
+    }
+};
+
+  // 키보드 단축키 핸들러 추가
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      const isMac = navigator.platform.toLowerCase().includes('mac');
+      const modifierKey = isMac ? e.metaKey : e.ctrlKey;
+  
+      // 터미널 토글 (Ctrl/Cmd + `)
+      if (modifierKey && e.key === '`') {
+        e.preventDefault();
+        setShowTerminal(prev => !prev);
+        return;
+      }
+      
+      // 터미널이 보이는 상태일 때만 다른 단축키 활성화
+      if (showTerminal) {
+        // 터미널 클리어 (Ctrl/Cmd + K)
+        if (modifierKey && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          clearActiveTerminal();
+          return;
+        }
+        
+        // 터미널 크기 리셋 (Ctrl/Cmd + 0)
+        if (modifierKey && e.key === '0') {
+          e.preventDefault();
+          setTerminalHeight(300); // 기본 높이로 리셋
+          return;
+        }
+  
+        // 터미널 위치 토글 (Ctrl/Cmd + \)
+        if (modifierKey && e.key === '\\') {
+          e.preventDefault();
+          setTerminalPosition(prev => prev === 'bottom' ? 'right' : 'bottom');
+          return;
+        }
+  
+        // 새 터미널 (Ctrl/Cmd + Shift + `)
+        if (modifierKey && e.shiftKey && e.key === '~') {
+          e.preventDefault();
+          const newId = Math.max(...terminals.map(t => t.id)) + 1;
+          setTerminals(prev => [...prev, { id: newId, active: true }]);
+          setActiveTerminalId(newId);
+          return;
+        }
+      }
+    };
+  
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [showTerminal, terminals]);
+
   useEffect(() => {
     fetchFileTree();
   }, [projectId, fetchFileTree]);
@@ -951,74 +1061,201 @@ const Workspace = () => {
       </div>
 
       <div className="editor">
-        <div className="editor-header">
-          <div className="file-info">
-            {currentFile ? (
-              <>
-                <BreadcrumbNav path={currentFile} />
-                {hasUnsavedChanges && <span className="unsaved-indicator">●</span>}
-              </>
-            ) : (
-              <span className="welcome-text">파일을 선택하세요</span>
-            )}
-          </div>
-          {currentFile && (
-            <div className="editor-actions">
-              {fileHistory.length > 0 && (
-                <button
-                  onClick={revertToLastVersion}
-                  className="revert-button"
-                  title="이전 버전으로 되돌리기"
-                >
-                  ↩️
-                </button>
-              )}
-              <button
-                onClick={() => saveFileContent(false)}
-                className={`save-button ${hasUnsavedChanges ? 'unsaved' : ''}`}
-                title="Ctrl/Cmd + S"
-              >
-                💾 저장
-              </button>
-            </div>
+  <div className="editor-header">
+    <div className="file-info">
+      {currentFile ? (
+        <>
+          <BreadcrumbNav path={currentFile} />
+          {hasUnsavedChanges && <span className="unsaved-indicator">●</span>}
+        </>
+      ) : (
+        <span className="welcome-text">파일을 선택하세요</span>
+      )}
+    </div>
+    <div className="editor-actions">
+      {currentFile && (
+        <>
+          {fileHistory.length > 0 && (
+            <button
+              onClick={revertToLastVersion}
+              className="revert-button"
+              title="이전 버전으로 되돌리기"
+            >
+              ↩️
+            </button>
           )}
+          <button
+            onClick={() => saveFileContent(false)}
+            className={`save-button ${hasUnsavedChanges ? 'unsaved' : ''}`}
+            title="Ctrl/Cmd + S"
+          >
+            💾 저장
+          </button>
+        </>
+      )}
+      <button 
+        className="terminal-toggle-icon"
+        onClick={() => setShowTerminal(!showTerminal)}
+        title={showTerminal ? "터미널 숨기기" : "터미널 보이기"}
+      >
+        <Icon path={mdiConsole} size={1} color={showTerminal ? "#0e639c" : "#cccccc"} />
+      </button>
+    </div>
+  </div>
+
+  <div className="editor-content" style={{ 
+    height: showTerminal ? `calc(100% - ${terminalHeight}px - 35px)` : 'calc(100% - 35px)'
+  }}>
+    <Editor
+      height="100%"
+      defaultLanguage="javascript"
+      value={fileContent}
+      theme="vs-dark"
+      options={{
+        fontSize: 14,
+        minimap: { enabled: true },
+        scrollBeyondLastLine: false,
+        wordWrap: 'on',
+        automaticLayout: true,
+        lineNumbers: 'on',
+        glyphMargin: true,
+        folding: true,
+        lineDecorationsWidth: 10,
+        formatOnPaste: true,
+        formatOnType: true
+      }}
+      onChange={handleEditorChange}
+      onMount={(editor) => {
+        editorRef.current = editor;
+      }}
+    />
+  </div>
+
+  {showTerminal && (
+  <div 
+    className={`terminal-section ${terminalPosition}`}
+    style={{ height: `${terminalHeight}px` }}
+  >
+    {/* Terminal Header */}
+    <div className="terminal-header">
+      <div className="controls-container">
+        {/* Terminal Tabs */}
+        <div className="terminal-tabs">
+          {terminals.map(terminal => (
+            <div
+              key={terminal.id}
+              className={`terminal-tab ${terminal.id === activeTerminalId ? 'active' : ''}`}
+              onClick={() => handleTerminalSelect(terminal.id)}
+            >
+              <span>{terminal.title}</span>
+              {terminals.length > 1 && (
+                <button 
+                  className="tab-close-btn"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    handleCloseTerminal(terminal.id);
+                  }}
+                >×</button>
+              )}
+            </div>
+          ))}
+          <button className="tab-add-btn" onClick={handleAddTerminal}>+</button>
         </div>
-        {loading ? (
-          <div className="loading">Loading...</div>
-        ) : (
-          <Editor
-            height="calc(100vh - 40px)"
-            defaultLanguage="javascript"
-            value={fileContent}
-            theme="vs-dark"
-            options={{
-              fontSize: 14,
-              minimap: { enabled: true },
-              scrollBeyondLastLine: false,
-              wordWrap: 'on',
-              automaticLayout: true,
-              lineNumbers: 'on',
-              glyphMargin: true,
-              folding: true,
-              lineDecorationsWidth: 10,
-              formatOnPaste: true,
-              formatOnType: true
-            }}
-            onChange={handleEditorChange}
-            onMount={(editor) => {
-              editorRef.current = editor;
-            }}
-          />
-        )}
+
+        {/* Terminal Controls */}
+        <div className="terminal-controls">
+          <button 
+            className="control-btn"
+            onClick={handlePositionChange}
+            title={terminalPosition === 'bottom' ? '우측으로 이동' : '하단으로 이동'}
+          >
+            <Icon path={terminalPosition === 'bottom' ? mdiArrowRight : mdiArrowDown} size={0.8} />
+          </button>
+          <button
+            className="control-btn"
+            onClick={handleTerminalSplit}
+            title="터미널 분할"
+          >
+            <Icon path={mdiViewSplitVertical} size={0.8} />
+          </button>
+          <button
+            className="control-btn"
+            onClick={() => setShowTerminalSearch(!showTerminalSearch)}
+            title="터미널 검색"
+          >
+            <Icon path={mdiMagnify} size={0.8} />
+          </button>
+        </div>
       </div>
-      {contextMenu && (
-        <ContextMenu
-          {...contextMenu}
-          onClose={() => setContextMenu(null)}
+
+      {/* Search Bar */}
+      {showTerminalSearch && (
+        <div className="terminal-search">
+          <input
+            type="text"
+            placeholder="터미널 검색..."
+            onChange={(e) => terminalRef.current?.search(e.target.value)}
+          />
+        </div>
+      )}
+    </div>
+
+    {/* Resize Handle */}
+    <div 
+      className="resize-handle"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        const startY = e.clientY;
+        const initialHeight = terminalHeight;
+        
+        const handleMouseMove = (moveEvent) => {
+          moveEvent.preventDefault();
+          const deltaY = startY - moveEvent.clientY;
+          const newHeight = Math.min(800, Math.max(200, initialHeight + deltaY));
+          setTerminalHeight(newHeight);
+        };
+        
+        const handleMouseUp = () => {
+          document.removeEventListener('mousemove', handleMouseMove);
+          document.removeEventListener('mouseup', handleMouseUp);
+        };
+        
+        document.addEventListener('mousemove', handleMouseMove);
+        document.addEventListener('mouseup', handleMouseUp);
+      }}
+    />
+
+    {/* Terminal Content */}
+    <div className={`terminal-container ${splitTerminal ? 'split' : ''}`}>
+      {splitTerminal ? (
+        <>
+          <div className="terminal-split">
+            <TerminalComponent 
+              ref={terminalRef}
+              projectId={projectId} 
+              id={activeTerminalId}
+            />
+          </div>
+          <div className="terminal-split">
+            <TerminalComponent 
+              projectId={projectId} 
+              id={`split-${activeTerminalId}`}
+            />
+          </div>
+        </>
+      ) : (
+        <TerminalComponent 
+          ref={terminalRef}
+          projectId={projectId} 
+          id={activeTerminalId}
         />
       )}
     </div>
-  );
+  </div>
+)}
+</div>
+  </div>
+);
 };
 
 export default Workspace;
