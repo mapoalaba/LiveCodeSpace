@@ -1011,3 +1011,47 @@ exports.getInvitations = async (req, res) => {
     });
   }
 };
+
+// 프로젝트 멤버 조회
+exports.getProjectMembers = async (req, res) => {
+  const { projectId } = req.params;
+
+  try {
+    // ProjectMembers 테이블에서 멤버 조회
+    const memberParams = {
+      TableName: "ProjectMembers",
+      FilterExpression: "projectId = :projectId",
+      ExpressionAttributeValues: {
+        ":projectId": projectId
+      }
+    };
+
+    const memberResult = await dynamoDB.send(new ScanCommand(memberParams));
+    
+    // 각 멤버의 이메일 정보 가져오기
+    const memberPromises = memberResult.Items.map(async (member) => {
+      const userParams = {
+        TableName: "Users",
+        FilterExpression: "userId = :userId",
+        ExpressionAttributeValues: {
+          ":userId": member.userId
+        }
+      };
+      
+      const userResult = await dynamoDB.send(new ScanCommand(userParams));
+      const user = userResult.Items[0];
+      
+      return {
+        email: user.email,
+        role: member.role
+      };
+    });
+
+    const members = await Promise.all(memberPromises);
+    res.status(200).json(members);
+
+  } catch (error) {
+    console.error("프로젝트 멤버 조회 실패:", error);
+    res.status(500).json({ error: "멤버 목록을 가져오는데 실패했습니다." });
+  }
+};

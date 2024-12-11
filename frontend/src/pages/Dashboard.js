@@ -2,6 +2,7 @@ import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import '../styles/Dashboard.css';
 import bin from '../img/쓰레기통.png';
+import user from '../img/user.png';
 
 const Dashboard = () => {
   const [projects, setProjects] = useState([]); // 사용자 프로젝트 리스트 상태
@@ -9,6 +10,9 @@ const Dashboard = () => {
   const [loading, setLoading] = useState(true); // 로딩 상태
   const [error, setError] = useState(""); // 에러 메시지
   const navigate = useNavigate();
+  const [showMembersModal, setShowMembersModal] = useState(false);
+  const [selectedProjectMembers, setSelectedProjectMembers] = useState([]);
+  const [selectedProjectName, setSelectedProjectName] = useState("");
 
   // 사용자 프로젝트 리스트 가져오기
   const fetchProjects = async () => {
@@ -236,6 +240,63 @@ const Dashboard = () => {
     }
   };
 
+  // 프로젝트 멤버 조회 함수
+  const fetchProjectMembers = async (projectId, projectName) => {
+    try {
+      const response = await fetch(
+        `${process.env.REACT_APP_PROJECTS_API_URL}/${projectId}/members`,
+        {
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem("token")}`,
+          },
+        }
+      );
+
+      if (!response.ok) {
+        throw new Error("멤버 목록을 가져오는데 실패했습니다.");
+      }
+
+      const data = await response.json();
+      setSelectedProjectMembers(data);
+      setSelectedProjectName(projectName);
+      setShowMembersModal(true);
+    } catch (error) {
+      console.error("멤버 조회 실패:", error);
+      alert("멤버 목록을 가져오는데 실패했습니다.");
+    }
+  };
+
+  // 멤버 목록 Modal 컴포넌트
+  const MembersModal = () => {
+    if (!showMembersModal) return null;
+
+    return (
+      <div className="modal-backdrop" onClick={() => setShowMembersModal(false)}>
+        <div className="modal-content" onClick={e => e.stopPropagation()}>
+          <div className="modal-header">
+            <h2 className="modal-title">{selectedProjectName} 멤버 목록</h2>
+            <button 
+              className="close-button"
+              onClick={() => setShowMembersModal(false)}
+            >
+              ×
+            </button>
+          </div>
+          <ul className="members-list">
+            {selectedProjectMembers.map((member, index) => (
+              <li key={index} className="member-item">
+                <span className="member-email">{member.email}</span>
+                <span className={`member-role role-${member.role}`}>
+                  {member.role === 'owner' ? '소유자' : '멤버'}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div className="project-dashboard">
       {invitedProjects.length > 0 && (
@@ -281,19 +342,28 @@ const Dashboard = () => {
                     >
                       초대
                     </button>
-                    <img 
-                      src={bin}
-                      alt="삭제"
-                      className="delete-icon"
-                      onClick={() => deleteProject(project.projectId)}
-                    />
                   </>
+                )}
+                <img 
+                  src={user}
+                  alt="멤버 보기"
+                  className="user-icon"
+                  onClick={() => fetchProjectMembers(project.projectId, project.projectName)}
+                />
+                {project.role === 'owner' && (
+                  <img 
+                    src={bin}
+                    alt="삭제"
+                    className="delete-icon"
+                    onClick={() => deleteProject(project.projectId)}
+                  />
                 )}
               </div>
             </li>
           ))}
         </ul>
       )}
+      <MembersModal />
     </div>
   );
 };

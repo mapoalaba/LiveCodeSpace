@@ -14,6 +14,7 @@ const {
   inviteToProject,
   acceptInvitation,
   getInvitations,
+  getProjectMembers, // Add this line
 } = require("../controllers/projectController");
 
 const router = express.Router();
@@ -57,6 +58,9 @@ router.delete('/:projectId/folders', verifyToken, deleteFolder);
 
 // 폴더 및 파일 이름 변경
 router.put('/:projectId/rename', verifyToken, renameItem);
+
+// 프로젝트 멤버 조회
+router.get("/:projectId/members", verifyToken, getProjectMembers);
 
 // 글로벌 에러 핸들러 추가
 router.use((err, req, res, next) => {
