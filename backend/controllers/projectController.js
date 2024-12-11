@@ -1017,7 +1017,6 @@ exports.getProjectMembers = async (req, res) => {
   const { projectId } = req.params;
 
   try {
-    // ProjectMembers 테이블에서 멤버 조회
     const memberParams = {
       TableName: "ProjectMembers",
       FilterExpression: "projectId = :projectId",
@@ -1048,7 +1047,15 @@ exports.getProjectMembers = async (req, res) => {
     });
 
     const members = await Promise.all(memberPromises);
-    res.status(200).json(members);
+
+    // 소유자가 먼저 오도록 정렬
+    const sortedMembers = members.sort((a, b) => {
+      if (a.role === 'owner') return -1;
+      if (b.role === 'owner') return 1;
+      return a.email.localeCompare(b.email); // 멤버들은 이메일 순으로 정렬
+    });
+
+    res.status(200).json(sortedMembers);
 
   } catch (error) {
     console.error("프로젝트 멤버 조회 실패:", error);
