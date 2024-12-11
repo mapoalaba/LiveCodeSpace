@@ -147,14 +147,17 @@ const RegisterAndVerify = () => {
       const data = await response.json();
       if (response.ok) {
         setMessage("Email verified successfully! You can now log in.");
+        alert("회원가입이 완료되었습니다!");  // 성공 alert 추가
         setTimeout(() => {
           navigate('/login');  // Login 페이지로 리다이렉트
         }, 1500);  // 1.5초 후 리다이렉트
       } else {
         setMessage(data.error || "Verification failed.");
+        alert("이메일 인증에 실패했습니다. 다시 시도해주세요.");  // 실패 alert 추가
       }
     } catch (error) {
       setMessage("Error: " + error.message);
+      alert("이메일 인증에 실패했습니다. 다시 시도해주세요.");  // 오류 발생 시 alert 추가
     }
   };
 
