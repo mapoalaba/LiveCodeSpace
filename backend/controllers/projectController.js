@@ -4,7 +4,8 @@ const {
   ScanCommand, 
   GetCommand,
   DeleteCommand,
-  QueryCommand 
+  QueryCommand,
+  UpdateCommand  // UpdateCommand 추가
 } = require("@aws-sdk/lib-dynamodb");
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
 const { 
@@ -196,7 +197,7 @@ exports.createProject = async (req, res) => {
 
     // 키 존재 여부 검증
     if (!newProject.id || !newProject.projectId) {
-      throw new Error("필수 키 생��� 실패");
+      throw new Error("필수 키 생성 실패");
     }
 
     // DynamoDB에 프로젝트 저장
@@ -277,19 +278,52 @@ exports.getProjectById = async (req, res) => {
 
 // ** 사용자 프로젝트 목록 조회 **
 exports.getUserProjects = async (req, res) => {
+  console.log("1. getUserProjects 호출됨");
+  console.log("2. 받은 req.user:", req.user);
   const { userId } = req.user;
 
   try {
+    console.log("3. userId 값:", userId);
+    if (!userId) {
+      console.log("4. userId가 없음!");
+      return res.status(400).json({ error: "사용자 ID가 필요합니다." });
+    }
+
     const params = {
       TableName: "FileSystemItems",
-      FilterExpression: "userId = :userId",
-      ExpressionAttributeValues: { ":userId": userId },
+      FilterExpression: "userId = :userId AND #type = :type",
+      ExpressionAttributeNames: {
+        "#type": "type"
+      },
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":type": "project"
+      }
     };
+
+    console.log("5. DynamoDB 쿼리 파라미터:", JSON.stringify(params, null, 2));
+    
     const result = await dynamoDB.send(new ScanCommand(params));
-    res.json(result.Items || []);
+    console.log("6. DynamoDB 조회 결과:", JSON.stringify(result, null, 2));
+    
+    if (!result.Items) {
+      console.log("7. 조회 결과 없음");
+      return res.json([]);  // 결과가 없으면 빈 배열 반환
+    }
+
+    console.log("8. 최종 반환 데이터:", JSON.stringify(result.Items, null, 2));
+    res.json(result.Items);
   } catch (error) {
-    console.error("Error fetching projects:", error);
-    res.status(500).json({ error: "Failed to fetch projects." });
+    console.error("9. 에러 발생:", {
+      errorName: error.name,
+      errorMessage: error.message,
+      errorStack: error.stack,
+      userId: userId
+    });
+    res.status(500).json({ 
+      error: "프로젝트 목록을 가져오는데 실패했습니다.",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };
 
@@ -491,7 +525,7 @@ exports.deleteFolder = async (req, res) => {
 
   try {
     await deleteFolder(folderPath);
-    res.status(200).json({ message: "폴더가 성공적으로 삭제되���습니다." });
+    res.status(200).json({ message: "폴더가 성공적으로 삭제되었습니다." });
   } catch (error) {
     console.error("Error deleting folder:", error);
     res.status(500).json({ error: "폴더 삭제에 실패했습니다." });
@@ -639,5 +673,280 @@ exports.deleteProject = async (req, res) => {
   } catch (error) {
     console.error("프로젝트 삭제 실패:", error);
     res.status(500).json({ error: "프로젝트 삭제에 실패했습니다." });
+  }
+};
+
+// 프로젝트 초대 함수 수정
+exports.inviteToProject = async (req, res) => {
+  const { projectId } = req.params;
+  const { email } = req.body;
+  const { userId } = req.user;
+
+  console.log("\n=== 프로젝트 초대 프로세스 시작 ===");
+  console.log("1. 초대 요청 데이터:", { projectId, email, inviterId: userId });
+
+  try {
+    // 1. 프로젝트 소유자 확인
+    const projectParams = {
+      TableName: "FileSystemItems",
+      FilterExpression: "projectId = :projectId",
+      ExpressionAttributeValues: {
+        ":projectId": projectId
+      }
+    };
+    
+    const projectResult = await dynamoDB.send(new ScanCommand(projectParams));
+    const project = projectResult.Items?.[0];
+    console.log("2. 프로젝트 조회 결과:", project);
+    
+    if (!project) {
+      return res.status(404).json({ error: "프로젝트를 찾을 수 없습니다." });
+    }
+
+    // 2. 초대할 사용자 확인
+    const userParams = {
+      TableName: "Users",
+      FilterExpression: "email = :email",
+      ExpressionAttributeValues: {
+        ":email": email
+      }
+    };
+    
+    const userResult = await dynamoDB.send(new ScanCommand(userParams));
+    const invitedUser = userResult.Items?.[0];
+    console.log("3. 초대할 사용자 정보:", invitedUser);
+    
+    if (!invitedUser) {
+      return res.status(404).json({ error: "존재하지 않는 사용자입니다." });
+    }
+
+    // 3. 중복 초대 확인
+    const existingInviteParams = {
+      TableName: "ProjectInvites",  // Changed from ProjectInvitations
+      FilterExpression: "projectId = :projectId AND inviteeId = :inviteeId AND #status = :status",
+      ExpressionAttributeNames: {
+        "#status": "status"
+      },
+      ExpressionAttributeValues: {
+        ":projectId": projectId,
+        ":inviteeId": invitedUser.userId,
+        ":status": "pending"
+      }
+    };
+
+    const existingInvite = await dynamoDB.send(new ScanCommand(existingInviteParams));
+    if (existingInvite.Items?.length > 0) {
+      return res.status(400).json({ error: "이미 초대된 사용자입니다." });
+    }
+
+    // 4. 초대 생성
+    const invitation = {
+      id: uuidv4(),
+      projectId,
+      inviterId: userId,
+      inviteeId: invitedUser.userId,
+      projectName: project.projectName,  // 프로젝트 이름도 저장
+      status: 'pending',
+      createdAt: new Date().toISOString()
+    };
+
+    console.log("4. ProjectInvites 테이블에 저장할 초대 정보:", JSON.stringify(invitation, null, 2));
+
+    await dynamoDB.send(new PutCommand({
+      TableName: "ProjectInvites",
+      Item: invitation
+    }));
+
+    // 저장된 초대 확인
+    const savedInvite = await dynamoDB.send(new GetCommand({
+      TableName: "ProjectInvites",
+      Key: { id: invitation.id }
+    }));
+
+    console.log("5. ProjectInvites 테이블에 저장된 초대:", JSON.stringify(savedInvite.Item, null, 2));
+
+    res.status(200).json({ message: "초대가 성공적으로 전송되었습니다." });
+
+  } catch (error) {
+    console.error("초대 생성 오류:", error);
+    res.status(500).json({ error: "초대 처리 중 오류가 발생했습니다." });
+  }
+};
+
+// 초대 수락 함수 수정
+exports.acceptInvitation = async (req, res) => {
+  const { projectId } = req.params;
+  const { userId } = req.user;
+
+  console.log("1. 초대 수락 시작:", { projectId, userId });
+
+  try {
+    // 초대 확인
+    const invitationParams = {
+      TableName: "ProjectInvites",
+      FilterExpression: "projectId = :projectId AND inviteeId = :userId AND #status = :status",
+      ExpressionAttributeNames: {
+        "#status": "status"
+      },
+      ExpressionAttributeValues: {
+        ":projectId": projectId,
+        ":userId": userId,
+        ":status": "pending"
+      }
+    };
+    
+    const invitationResult = await dynamoDB.send(new ScanCommand(invitationParams));
+    const invitation = invitationResult.Items?.[0];
+    
+    console.log("2. 찾은 초대:", invitation);
+
+    if (!invitation) {
+      return res.status(404).json({ error: "유효한 초대를 찾을 수 없습니다." });
+    }
+
+    // 프로젝트 정보 조회
+    const projectParams = {
+      TableName: "FileSystemItems",
+      FilterExpression: "projectId = :projectId",
+      ExpressionAttributeValues: {
+        ":projectId": projectId
+      }
+    };
+
+    const projectResult = await dynamoDB.send(new ScanCommand(projectParams));
+    const project = projectResult.Items?.find(item => item.type === 'project');
+
+    if (!project) {
+      return res.status(404).json({ error: "프로젝트를 찾을 수 없습니다." });
+    }
+
+    // 프로젝트 멤버로 추가
+    const memberParams = {
+      TableName: "ProjectMembers",
+      Item: {
+        id: uuidv4(),
+        projectId,
+        userId,
+        role: "member",
+        addedAt: new Date().toISOString()
+      }
+    };
+
+    console.log("3. 추가할 멤버 정보:", memberParams.Item);
+    await dynamoDB.send(new PutCommand(memberParams));
+
+    // 초대 상태 업데이트
+    const updateParams = {
+      TableName: "ProjectInvites",
+      Key: {
+        id: invitation.id
+      },
+      UpdateExpression: "set #status = :status, acceptedAt = :acceptedAt",
+      ExpressionAttributeNames: {
+        "#status": "status"
+      },
+      ExpressionAttributeValues: {
+        ":status": "accepted",
+        ":acceptedAt": new Date().toISOString()
+      },
+      ReturnValues: "ALL_NEW"
+    };
+
+    console.log("4. 초대 상태 업데이트 파라미터:", updateParams);
+    const updateResult = await dynamoDB.send(new UpdateCommand(updateParams));
+
+    // 응답에 프로젝트 정보 포함
+    res.status(200).json({ 
+      message: "초대가 수락되었습니다.",
+      project: {
+        projectId: project.projectId,
+        projectName: project.projectName,
+        createdAt: project.createdAt,
+        lastEditedAt: project.lastEditedAt
+      }
+    });
+
+  } catch (error) {
+    console.error("초대 수락 오류:", error);
+    res.status(500).json({ 
+      error: "초대 수락 중 오류가 발생했습니다.",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+// 받은 초대 목록 조회 함수 수정
+exports.getInvitations = async (req, res) => {
+  const { userId } = req.user;
+  
+  console.log("\n=== 초대 목록 조회 프로세스 시작 ===");
+  console.log("1. 요청한 사용자 ID:", userId);
+
+  try {
+    // ProjectInvites 테이블의 모든 내용 조회 (디버깅용)
+    const allInvitesResult = await dynamoDB.send(new ScanCommand({
+      TableName: "ProjectInvites"
+    }));
+    console.log("2. ProjectInvites 테이블의 전체 데이터:", JSON.stringify(allInvitesResult.Items, null, 2));
+
+    // 특정 사용자의 대기 중인 초대 조회
+    const invitationParams = {
+      TableName: "ProjectInvites",
+      FilterExpression: "inviteeId = :userId AND #status = :status",
+      ExpressionAttributeNames: {
+        "#status": "status"
+      },
+      ExpressionAttributeValues: {
+        ":userId": userId,
+        ":status": "pending"
+      }
+    };
+
+    console.log("3. 초대 조회 파라미터:", JSON.stringify(invitationParams, null, 2));
+    
+    const invitationResult = await dynamoDB.send(new ScanCommand(invitationParams));
+    console.log("4. 현재 사용자의 대기 중인 초대:", JSON.stringify(invitationResult.Items, null, 2));
+
+    if (!invitationResult.Items || invitationResult.Items.length === 0) {
+      return res.status(200).json([]);
+    }
+
+    const projectPromises = invitationResult.Items.map(async (invitation) => {
+      console.log("8. 개별 초대 처리:", invitation);
+
+      const projectParams = {
+        TableName: "FileSystemItems",
+        FilterExpression: "projectId = :projectId",
+        ExpressionAttributeValues: {
+          ":projectId": invitation.projectId
+        }
+      };
+
+      const projectResult = await dynamoDB.send(new ScanCommand(projectParams));
+      const project = projectResult.Items?.[0];
+
+      if (!project) {
+        console.log(`9. 프로젝트 없음: ${invitation.projectId}`);
+        return null;
+      }
+
+      return {
+        ...invitation,
+        projectName: project.projectName
+      };
+    });
+
+    const results = await Promise.all(projectPromises);
+    const validInvitations = results.filter(Boolean);
+    console.log("5. 클라이언트에 반환할 최종 데이터:", JSON.stringify(validInvitations, null, 2));
+
+    return res.status(200).json(validInvitations);
+
+  } catch (error) {
+    console.error("초대 목록 조회 실패:", error);
+    res.status(500).json({
+      error: "초대 목록을 가져오는데 실패했습니다.",
+      details: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
   }
 };

@@ -11,9 +11,22 @@ const {
   deleteFolder,
   renameItem,
   deleteProject,
+  inviteToProject,
+  acceptInvitation,
+  getInvitations,
 } = require("../controllers/projectController");
 
 const router = express.Router();
+
+// 오류 처리 미들웨어 추가
+const asyncHandler = fn => (req, res, next) => {
+  return Promise.resolve(fn(req, res, next)).catch(next);
+};
+
+// 초대 관련 라우트들을 상단으로 이동하고 경로 수정
+router.get("/invitations", verifyToken, asyncHandler(getInvitations)); // 초대 목록 조회를 먼저 정의
+router.post("/:projectId/invite", verifyToken, asyncHandler(inviteToProject));
+router.post("/:projectId/accept", verifyToken, asyncHandler(acceptInvitation));
 
 // 사용자 프로젝트 목록 조회
 router.get("/", verifyToken, getUserProjects);
@@ -44,5 +57,14 @@ router.delete('/:projectId/folders', verifyToken, deleteFolder);
 
 // 폴더 및 파일 이름 변경
 router.put('/:projectId/rename', verifyToken, renameItem);
+
+// 글로벌 에러 핸들러 추가
+router.use((err, req, res, next) => {
+  console.error("라우트 에러:", err);
+  res.status(500).json({
+    error: "서버 오류가 발생했습니다.",
+    details: process.env.NODE_ENV === 'development' ? err.message : undefined
+  });
+});
 
 module.exports = router;
