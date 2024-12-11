@@ -61,6 +61,12 @@
   border: 1px solid rgba(52, 152, 219, 0.1);
 }
 
+.project-dashboard li .button-group {
+  display: flex;
+  gap: 5px;
+  margin-left: auto;
+}
+
 .project-dashboard li:hover {
   transform: translateY(-5px);
   box-shadow: 0 8px 24px rgba(52, 152, 219, 0.12);
@@ -72,11 +78,124 @@
   font-size: 0.9rem;
   background-color: #e3f2fd;
   color: #2980b9;
+  border-radius: 10px;
 }
 
 .project-dashboard li button:hover {
   background-color: #3498db;
   color: white;
+}
+
+.delete-icon {
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+  margin-left: 10px;
+  margin-top: 7px;
+}
+
+.delete-icon:hover {
+  transform: scale(1.1);
+}
+
+.user-icon {
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+  margin-top: 5px;
+}
+
+.user-icon:hover {
+  transform: scale(1.1);
+}
+
+.modal-backdrop {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  background-color: rgba(0, 0, 0, 0.5);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 1000;
+}
+
+.modal-content {
+  background: white;
+  padding: 2rem;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.15);
+  width: 90%;
+  max-width: 400px;
+  position: relative;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 1.5rem;
+  border-bottom: 2px solid #eee;
+  padding-bottom: 1rem;
+}
+
+.modal-title {
+  font-size: 1.4rem;
+  color: #2c3e50;
+  font-weight: 600;
+}
+
+.close-button {
+  background: none;
+  border: none;
+  font-size: 1.5rem;
+  cursor: pointer;
+  color: #666;
+  padding: 0;
+  margin: 0;
+}
+
+.members-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.member-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.8rem;
+  border-radius: 8px;
+  margin-bottom: 0.5rem;
+  background-color: #f8f9fa;
+}
+
+.member-email {
+  color: #2c3e50;
+  font-size: 1rem;
+}
+
+.member-role {
+  margin-left: auto;
+  padding: 0.3rem 0.8rem;
+  border-radius: 20px;
+  font-size: 0.8rem;
+  font-weight: 500;
+}
+
+.role-owner {
+  background-color: #e3f2fd;
+  color: #1976d2;
+}
+
+.role-member {
+  background-color: #f5f5f5;
+  color: #616161;
 }
 
 .project-dashboard p {
@@ -92,4 +211,27 @@
   padding: 1rem;
   background: #fde8e7;
   border-radius: 8px;
+}
+
+.project-name {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+  cursor: default;
+}
+
+.member-actions {
+  display: flex;
+  align-items: center;
+  margin-left: auto;
+}
+
+.member-item .delete-icon {
+  cursor: pointer;
+  transition: transform 0.2s ease;
+}
+
+.member-item .delete-icon:hover {
+  transform: scale(1.1);
 }

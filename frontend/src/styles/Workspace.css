@@ -159,3 +159,44 @@
 .save-button:hover {
   background-color: #3c3c3c;
 }
+
+.dragging {
+  opacity: 0.5;
+  border: 2px dashed #007bff;
+}
+
+.drop-target {
+  background-color: rgba(0, 123, 255, 0.1);
+  border: 2px dashed #007bff;
+}
+
+.folder-arrow {
+  font-size: 10px;
+  width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #cccccc;
+}
+
+.tree-node {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+}
+
+.tree-node .icon {
+  margin-right: 6px;
+  font-size: 16px;
+  width: 16px;
+  text-align: center;
+}
+
+.tree-node.folder.expanded .folder-arrow {
+  transform: rotate(0deg);
+}
+
+.tree-node.folder:not(.expanded) .folder-arrow {
+  transform: rotate(-90deg);
+}

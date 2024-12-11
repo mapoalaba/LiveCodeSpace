@@ -2,7 +2,7 @@
 
 
 const { DynamoDBClient } = require("@aws-sdk/client-dynamodb");
-const { DynamoDBDocumentClient, PutCommand, UpdateCommand, GetCommand } = require("@aws-sdk/lib-dynamodb");
+const { DynamoDBDocumentClient, PutCommand, UpdateCommand, GetCommand, ScanCommand } = require("@aws-sdk/lib-dynamodb");
 const AmazonCognitoIdentity = require("amazon-cognito-identity-js");
 const jwt = require("jsonwebtoken");
 const jwksClient = require("jwks-rsa");
@@ -59,7 +59,7 @@ exports.register = (req, res) => {
   });
 };
 
-// 로그인 API
+// 로그인 API 수정
 exports.login = (req, res) => {
   const { email, password } = req.body;
 
@@ -74,23 +74,43 @@ exports.login = (req, res) => {
   cognitoUser.authenticateUser(authenticationDetails, {
     onSuccess: async (result) => {
       const idToken = result.idToken.jwtToken;
-      const userId = result.idToken.payload.sub;
-
-      const params = {
+      
+      // Users 테이블에서 이메일로 사용자 조회
+      const userParams = {
         TableName: "Users",
-        Key: { userId },
-        UpdateExpression: "set lastLogin = :lastLogin",
+        FilterExpression: "email = :email",
         ExpressionAttributeValues: {
-          ":lastLogin": new Date().toISOString(),
-        },
+          ":email": email
+        }
       };
 
       try {
-        await dynamoDB.send(new UpdateCommand(params));
-        console.log("User last login updated in DynamoDB");
+        const userResult = await dynamoDB.send(new ScanCommand(userParams));
+        const user = userResult.Items?.[0];
+        
+        if (!user) {
+          return res.status(404).json({ error: "User not found in database" });
+        }
+
+        // 실제 DynamoDB의 userId 사용
+        const userId = user.userId;
+        
+        console.log("로그인 성공:", { email, userId });
+
+        // 마지막 로그인 시간 업데이트
+        const updateParams = {
+          TableName: "Users",
+          Key: { userId },
+          UpdateExpression: "set lastLogin = :lastLogin",
+          ExpressionAttributeValues: {
+            ":lastLogin": new Date().toISOString(),
+          },
+        };
+
+        await dynamoDB.send(new UpdateCommand(updateParams));
         res.json({ token: idToken, userId });
       } catch (err) {
-        console.error("DynamoDB error:", err.message);
+        console.error("DynamoDB error:", err);
         res.status(500).json({ error: "Failed to update user login data." });
       }
     },
@@ -171,28 +191,58 @@ function getKey(header, callback) {
   });
 }
 
-// 토큰 검증 미들웨어
-exports.verifyToken = (req, res, next) => {
+// verifyToken 미들웨어 수정
+exports.verifyToken = async (req, res, next) => {
+  console.log("1. verifyToken 미들웨어 시작");
   const token = req.headers.authorization?.split(" ")[1];
+  console.log("2. 받은 토큰:", token ? "토큰 있음" : "토큰 없음");
+
   if (!token) {
+    console.log("3. 토큰 없음 에러");
     return res.status(401).json({ error: "Access denied. No token provided." });
   }
 
-  jwt.verify(token, getKey, { algorithms: ["RS256"] }, (err, decoded) => {
-    if (err) {
-      console.error("Invalid Token Error:", err.message);
-      return res.status(400).json({ error: "Invalid token" });
-    }
+  try {
+    // 토큰 검증을 Promise로 변환
+    const verifyJwt = promisify(jwt.verify);
+    const decoded = await verifyJwt(token, getKey, { algorithms: ["RS256"] });
 
-    console.log("Decoded User:", decoded);
+    console.log("5. 토큰 디코딩 결과:", {
+      sub: decoded.sub,
+      email: decoded.email
+    });
 
-    // JWT에서 필요한 정보를 매핑하여 req.user에 저장
-    req.user = {
-      userId: decoded.sub, // sub 필드를 userId로 매핑
-      name: decoded.name,  // 이름 필드 추가
-      email: decoded.email // 이메일 필드 추가
+    // Users 테이블에서 이메일로 실제 userId 조회
+    const userParams = {
+      TableName: "Users",
+      FilterExpression: "email = :email",
+      ExpressionAttributeValues: {
+        ":email": decoded.email
+      }
     };
 
+    const userResult = await dynamoDB.send(new ScanCommand(userParams));
+    const user = userResult.Items?.[0];
+
+    if (!user) {
+      throw new Error("User not found in database");
+    }
+
+    console.log("5-1. DB에서 찾은 사용자 정보:", {
+      userId: user.userId,
+      email: user.email
+    });
+
+    req.user = {
+      userId: user.userId, // Cognito sub 대신 DB의 userId 사용
+      name: decoded.name,
+      email: decoded.email
+    };
+
+    console.log("6. req.user 설정됨:", req.user);
     next();
-  });
+  } catch (err) {
+    console.error("4. 토큰 검증 실패:", err);
+    return res.status(400).json({ error: "Invalid token" });
+  }
 };
