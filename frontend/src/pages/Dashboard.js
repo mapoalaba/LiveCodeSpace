@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import '../styles/Dashboard.css';
+import bin from '../img/쓰레기통.png';
 
 const Dashboard = () => {
   const [projects, setProjects] = useState([]); // 사용자 프로젝트 리스트 상태
@@ -132,12 +133,12 @@ const Dashboard = () => {
               </span>
               <div className="button-group">
                 <button onClick={() => openProject(project.projectId)}>열기</button>
-                <button 
+                <img 
+                  src={bin}
+                  alt="삭제"
+                  className="delete-icon"
                   onClick={() => deleteProject(project.projectId)}
-                  className="delete-btn"
-                >
-                  삭제
-                </button>
+                />
               </div>
             </li>
           ))}

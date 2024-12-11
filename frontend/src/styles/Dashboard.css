@@ -86,14 +86,16 @@
   color: white;
 }
 
-.project-dashboard li button.delete-btn {
-  margin-left: 5px;
-  background-color: #ff4444;
+.delete-icon {
+  width: 24px;
+  height: 24px;
+  cursor: pointer;
+  transition: transform 0.2s ease;
+  margin-left: 10px;
 }
 
-.project-dashboard li button.delete-btn:hover {
-  background-color: #ff0000;
-  color: white;
+.delete-icon:hover {
+  transform: scale(1.1);
 }
 
 .project-dashboard p {
