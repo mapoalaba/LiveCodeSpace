@@ -16,19 +16,12 @@ const path = require('path');
 const s3 = new AWS.S3();
 const dynamoDB = new AWS.DynamoDB.DocumentClient();
 const docker = new Docker();
-const socketServer = require('./socket/socketServer');
 
 // Express 앱 및 HTTP 서버 초기화
 const app = express();
 const server = http.createServer(app);
 
-// Docker 컨테이너 관리 클래스
-class ContainerManager {
-  constructor() {
-    this.containers = new Map();
-    this.terminals = new Map();
-  }
-  
+// Socket.IO 설정
 const io = new Server(server, {
   cors: {
     origin: "http://localhost:3000",
@@ -41,9 +34,10 @@ const io = new Server(server, {
   pingTimeout: 60000,  // 핑 타임아웃 증가
   pingInterval: 25000,
   allowEIO3: true     // Engine.IO 3 허용
+});
 
 // 터미널 명령어 핸들러
-const commands = {
+const terminalCommands = {
   async pwd(session, socket) {
     socket.emit('terminal-output', '\r\n');
     socket.emit('terminal-output', session.currentPath);
@@ -52,8 +46,7 @@ const commands = {
 
   async ls(session, socket, args) {
     try {
-      // 현재 경로에서 마지막 슬래시 확인하고 정규화
-      const currentPrefix = session.currentPath.slice(1);  // 앞의 '/' 제거
+      const currentPrefix = session.currentPath.slice(1);
       const normalizedPrefix = currentPrefix.endsWith('/') ? currentPrefix : `${currentPrefix}/`;
 
       const params = {
@@ -65,21 +58,39 @@ const commands = {
       const data = await s3.listObjectsV2(params).promise();
       socket.emit('terminal-output', '\r\n');
 
-      let hasContent = false;
-
-      // 폴더 목록 (CommonPrefixes)
-      if (data.CommonPrefixes && data.CommonPrefixes.length > 0) {
+      // 폴더와 파일 목록 출력
+      if (data.CommonPrefixes) {
         for (const prefix of data.CommonPrefixes) {
-          // 현재 경로의 직계 하위 폴더만 표시
           const folderName = prefix.Prefix.slice(normalizedPrefix.length).split('/')[0];
           if (folderName) {
             socket.emit('terminal-output', `\x1b[34m${folderName}/\x1b[0m  `);
-            hasContent = true;
           }
         }
       }
 
-  // 컨테이너 생성 또는 가져오기
+      if (data.Contents) {
+        for (const file of data.Contents) {
+          const fileName = file.Key.slice(normalizedPrefix.length).split('/')[0];
+          if (fileName && !fileName.endsWith('/')) {
+            socket.emit('terminal-output', `${fileName}  `);
+          }
+        }
+      }
+
+      socket.emit('terminal-output', '\r\n\r\n');
+    } catch (error) {
+      socket.emit('terminal-output', `Error: ${error.message}\r\n`);
+    }
+  }
+};
+
+// Docker 컨테이너 관리 클래스
+class ContainerManager {
+  constructor() {
+    this.containers = new Map();
+    this.terminals = new Map();
+  }
+
   async getOrCreateContainer(projectId) {
     console.log(`[Docker] Getting or creating container for project: ${projectId}`);
     
@@ -88,7 +99,6 @@ const commands = {
     if (!containerInfo) {
       console.log(`[Docker] Creating new container for project: ${projectId}`);
       
-      // 새 컨테이너 생성
       const container = await docker.createContainer({
         Image: 'node:latest',
         name: `project-${projectId}`,
@@ -99,28 +109,25 @@ const commands = {
         WorkingDir: `/app/${projectId}`,
         HostConfig: {
           Binds: [`/workspace/${projectId}:/app/${projectId}`],
-          Memory: 2 * 1024 * 1024 * 1024, // 2GB
-          NanoCPUs: 2 * 1000000000, // 2 CPU cores
+          Memory: 2 * 1024 * 1024 * 1024,
+          NanoCPUs: 2 * 1000000000,
           PortBindings: {
-            '3000/tcp': [{ HostPort: '' }], // React 개발 서버
-            '3001/tcp': [{ HostPort: '' }]  // 추가 포트
+            '3000/tcp': [{ HostPort: '' }],
+            '3001/tcp': [{ HostPort: '' }]
           }
         }
       });
 
       await container.start();
-      console.log(`[Docker] Container started for project: ${projectId}`);
       
-      // 컨테이너 정보 저장
       containerInfo = {
         container,
-        terminals: new Map(),
-        lastActivity: Date.now()
+        sessions: new Map(),
+        lastActivity: Date.now(),
+        projectId
       };
       
       this.containers.set(projectId, containerInfo);
-      
-      // 기본 개발 환경 설정
       await this.initializeDevEnvironment(container, projectId);
     }
 
