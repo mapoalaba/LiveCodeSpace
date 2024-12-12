@@ -4,6 +4,24 @@ const os = require('os');
 const terminals = new Map();
 
 module.exports = (io) => {
+  const projectClients = new Map();
+  const typingUsers = new Map();  // 타이핑 중인 사용자 관리
+  const fileEditors = new Map(); // 파일별 편집 중인 사용자 관리
+
+  const updateActiveUsers = (projectId) => {
+    const clients = projectClients.get(projectId) || new Set();
+    io.to(projectId).emit("activeUsers", { count: clients.size });
+  };
+
+  const updateFileEditors = (fileId, projectId) => {
+    const editors = fileEditors.get(fileId) || new Set();
+    console.log(`[Socket.IO] File ${fileId} editors:`, Array.from(editors));  // 로그 추가
+    io.to(projectId).emit("activeEditors", { 
+      fileId, 
+      editors: Array.from(editors) 
+    });
+  };
+
   io.on("connection", (socket) => {
     console.log("[Socket.IO] User connected:", socket.id);
 

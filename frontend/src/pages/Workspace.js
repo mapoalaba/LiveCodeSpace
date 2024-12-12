@@ -19,14 +19,21 @@ import {
   mdiMagnify 
 } from '@mdi/js';
 import "../styles/Workspace.css";
+import { io } from "socket.io-client";
 import TerminalComponent from './TerminalComponent';
 import TerminalTabs from '../components/TerminalTabs';
 import TerminalControls from '../components/TerminalControls';
 import TerminalSearch from '../components/TerminalSearch';
 
+// 파일 최상단에 socketRef를 컴포넌트 외부에 선언
+let globalSocketRef = null;
 
+// 컴포넌트 최상단에 Refs 추가
 const Workspace = () => {
   const { projectId } = useParams();
+  const initPromiseRef = useRef(null);
+  const socketInitializedRef = useRef(false); // 초기화 여부 추적을 위한 새로운 ref
+
   const [fileTree, setFileTree] = useState([]);
   const [expandedFolders, setExpandedFolders] = useState(new Set());
   const [currentFolder, setCurrentFolder] = useState("");
@@ -44,6 +51,12 @@ const Workspace = () => {
   const [terminalHeight, setTerminalHeight] = useState(300); // 기본 높이
   const editorRef = useRef(null);
   const autoSaveIntervalRef = useRef(null);
+  const [socket, setSocket] = useState(null);
+  const [activeUsers, setActiveUsers] = useState(0);
+  const debounceTimeout = useRef(null);
+  const [typingUsers, setTypingUsers] = useState([]);
+  const typingTimeoutRef = useRef(null);
+  const [currentEditors, setCurrentEditors] = useState([]); // 추가: 현재 편집 중인 사용자 목록
   const [terminalPosition, setTerminalPosition] = useState('bottom');
   const [terminals, setTerminals] = useState([{ id: 1, active: true, title: 'Terminal 1' }]);
   const [activeTerminalId, setActiveTerminalId] = useState(1);
@@ -53,11 +66,68 @@ const Workspace = () => {
   // 자동 저장 설정
   const AUTO_SAVE_INTERVAL = 30000; // 30초
 
-  // 파일 내용 변경 감지
-  const handleEditorChange = (value) => {
+  // socket 관련 로직 수정
+  const sendWebSocketMessage = (actionType, data) => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !projectId) {
+      console.warn('[WS] Socket not ready or projectId missing');
+      return;
+    }
+  
+    try {
+      const message = JSON.stringify({
+        action: actionType,
+        projectId,
+        ...data
+      });
+      console.log('[WS] Sending message:', message);
+      socket.send(message);
+    } catch (error) {
+      console.error('[WS] Send error:', error);
+    }
+  };
+
+  // 파일 내용 변경 감지 함수 수정
+  const handleEditorChange = useCallback((value) => {
     setFileContent(value);
     setHasUnsavedChanges(true);
-  };
+  
+    if (debounceTimeout.current) {
+      clearTimeout(debounceTimeout.current);
+    }
+  
+    // 실시간 코드 변경 전송
+    if (socket && currentFile) {
+      debounceTimeout.current = setTimeout(() => {
+        socket.emit("codeChange", {
+          fileId: currentFile,
+          content: value,
+          cursorPosition: editorRef.current?.getPosition()
+        });
+
+        // 파일 편집 상태 전송
+        const userName = localStorage.getItem('userName') || '익명';
+        socket.emit("joinFile", {
+          fileId: currentFile,
+          userName
+        });
+      }, 100);
+  
+      // 타이핑 상태 전송
+      const userName = localStorage.getItem('userName') || '익명';
+      socket.emit("typing", {
+        fileId: currentFile,
+        userName: userName // 실제 사용자 이름 사용
+      });
+  
+      // 타이핑 중지 타이머 설정
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      typingTimeoutRef.current = setTimeout(() => {
+        socket.emit("stopTyping", { fileId: currentFile });
+      }, 1000);
+    }
+  }, [socket, currentFile]);
 
   const fetchFileTree = useCallback(async (parentId = 'root') => {
     try {
@@ -317,6 +387,16 @@ const Workspace = () => {
       console.error("파일 데이터가 유효하지 않습니다:", file);
       return;
     }
+    
+    // 파일을 열 때 joinFile 이벤트 발생
+    if (socket) {
+      const userName = localStorage.getItem('userName') || '익명';
+      socket.emit("joinFile", {
+        fileId: file.id,
+        userName
+      });
+    }
+    
     fetchFileContent(file);
   };
 
@@ -376,6 +456,10 @@ const Workspace = () => {
           })
         );
       }
+
+      if (socket && createdItem) {
+        socket.emit("folderCreate", { folder: createdItem });
+      }
     } catch (error) {
       console.error("폴더 생성 중 오류:", error);
       alert("폴더 생성에 실패했습니다.");
@@ -429,6 +513,10 @@ const Workspace = () => {
       // 생성된 파일 자동 선택 (선택 사항)
       setCurrentFile(createdFile.id);
       setFileContent("");  // 새 파일은 빈 내용으로 시작
+
+      if (socket && createdFile) {
+        socket.emit("fileCreate", { file: createdFile });
+      }
   
     } catch (error) {
       console.error("파일 생성 중 오류:", error);
@@ -488,6 +576,13 @@ const Workspace = () => {
       if (node.type === 'file' && node.id === currentFile) {
         setCurrentFile("");
         setFileContent("// 코드를 작성하세요!");
+      }
+
+      if (socket) {
+        socket.emit("itemDelete", {
+          itemId: node.id,
+          itemType: node.type
+        });
       }
 
     } catch (error) {
@@ -574,6 +669,14 @@ const Workspace = () => {
       // 현재 파일인 경우 현재 파일 이름 업데이트
       if (node.id === currentFile) {
         setCurrentFile(data.updatedItem.id);
+      }
+
+      if (socket) {
+        sendWebSocketMessage('itemRename', { 
+          projectId, 
+          itemId: node.id, 
+          newName 
+        });
       }
   
     } catch (error) {
@@ -736,6 +839,14 @@ const Workspace = () => {
       }
 
       await fetchFileTree();
+
+      if (socket) {
+        sendWebSocketMessage('itemMove', { 
+          projectId, 
+          itemId: draggedData.id, 
+          newParentId: targetNode.id 
+        });
+      }
     } catch (error) {
       console.error("Error moving item:", error);
       alert(error.message);
@@ -875,9 +986,6 @@ const Workspace = () => {
       case 'bat':
         return <Icon path={mdiConsole} size={1} />;
       case 'properties':
-        return <Icon path={mdiCog} size={1} />;
-      case 'kts':
-        return <Icon path={mdiLanguageKotlin} size={1} />;
       default:
         return <Icon path={mdiFile} size={1} />;
     }
@@ -1005,10 +1113,70 @@ const handlePositionChange = () => {
     }
   }, [currentFile, hasUnsavedChanges, saveFileContent]);
 
+  useEffect(() => {
+    let socket = null;
+
+    const initSocket = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!projectId || !token) return;
+
+        socket = io(process.env.REACT_APP_SOCKET_URL || 'http://localhost:5001', {
+          path: "/socket",
+          auth: { token },
+          query: { projectId }
+        });
+
+        socket.on("connect", () => {
+          console.log("[Socket.IO] Connected");
+          socket.emit("joinProject", projectId);
+        });
+
+        socket.on("activeUsers", ({ count }) => {
+          setActiveUsers(count);
+        });
+
+        socket.on("codeUpdate", ({ fileId, content, cursorPosition, senderId }) => {
+          if (fileId === currentFile && senderId !== socket.id) {
+            setFileContent(content);
+            if (cursorPosition && editorRef.current) {
+              editorRef.current.setPosition(cursorPosition);
+            }
+          }
+        });
+
+        socket.on("fileTreeUpdate", () => {
+        });
+
+        setSocket(socket);
+      } catch (error) {
+        console.error("[Socket.IO] Init error:", error);
+      }
+    };
+
+    initSocket();
+
+    return () => {
+      if (socket) {
+        socket.disconnect();
+      }
+    };
+  }, [projectId, currentFile]);
+
+  // 메시지 전송 함수 수정
+  const sendSocketMessage = useCallback((eventName, data) => {
+    if (!socket?.connected) {
+      console.warn("[Socket.IO] Not connected");
+      return;
+    }
+    socket.emit(eventName, { ...data, projectId });
+  }, [socket, projectId]);
+
   return (
     <div className="workspace">
       <div className="sidebar">
         <div className="sidebar-header">
+        🟢 활성 사용자: {activeUsers}명
           <div className="search-box">
             <input
               type="text"
@@ -1072,6 +1240,30 @@ const handlePositionChange = () => {
         <span className="welcome-text">파일을 선택하세요</span>
       )}
     </div>
+    <div className="current-editors">
+            {currentEditors.length > 0 && (
+              <span className="editors-list">
+                {currentEditors.map((editor, idx) => (
+                  <span key={idx} className="editor-name">
+                    {editor} 편집중
+                    {idx < currentEditors.length - 1 ? ', ' : ''}
+                  </span>
+                ))}
+              </span>
+            )}
+          </div>
+    <div className="current-editors">
+            {currentEditors.length > 0 && (
+              <span className="editors-list">
+                {currentEditors.map((editor, idx) => (
+                  <span key={idx} className="editor-name">
+                    {editor} 편집중
+                    {idx < currentEditors.length - 1 ? ', ' : ''}
+                  </span>
+                ))}
+              </span>
+            )}
+          </div>
     <div className="editor-actions">
       {currentFile && (
         <>
@@ -1186,6 +1378,47 @@ const handlePositionChange = () => {
             <Icon path={mdiMagnify} size={0.8} />
           </button>
         </div>
+        {loading ? (
+          <div className="loading">Loading...</div>
+        ) : (
+          <>
+            <div className="editor-content">
+              <Editor
+                height="calc(100vh - 40px)"
+                defaultLanguage="javascript"
+                value={fileContent}
+                theme="vs-dark"
+                options={{
+                  fontSize: 14,
+                  minimap: { enabled: true },
+                  scrollBeyondLastLine: false,
+                  wordWrap: 'on',
+                  automaticLayout: true,
+                  lineNumbers: 'on',
+                  glyphMargin: true,
+                  folding: true,
+                  lineDecorationsWidth: 10,
+                  formatOnPaste: true,
+                  formatOnType: true
+                }}
+                onChange={handleEditorChange}
+                onMount={(editor) => {
+                  editorRef.current = editor;
+                }}
+              />
+              {typingUsers.length > 0 && (
+                <div className="typing-indicator">
+                  {typingUsers.map((user, index) => (
+                    <span key={index}>
+                      {user} 타이핑 중
+                      {index < typingUsers.length - 1 ? ', ' : ''}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Search Bar */}

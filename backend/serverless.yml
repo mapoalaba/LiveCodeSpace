@@ -1,0 +1,116 @@
+service: livecode-websocket
+
+provider:
+  name: aws
+  runtime: nodejs16.x
+  region: ${opt:region, 'ap-northeast-2'}
+  iam:
+    role:
+      statements:
+        - Effect: Allow
+          Action:
+            - dynamodb:PutItem
+            - dynamodb:GetItem
+            - dynamodb:DeleteItem
+            - dynamodb:Query
+          Resource: 
+            - !GetAtt ConnectionsTable.Arn
+            - !GetAtt ProjectConnectionsTable.Arn
+        - Effect: Allow
+          Action:
+            - execute-api:ManageConnections
+            - execute-api:Invoke
+          Resource: 
+            - "arn:aws:execute-api:${self:provider.region}:*:*/${self:provider.websocketApi.name}/*"
+  websocketApi:
+    name: ${self:service}-api
+    protocol: WSS
+    cors:
+      allowedOrigins:
+        - 'http://localhost:3000'
+      allowedHeaders:
+        - 'Authorization'
+        - 'Content-Type'
+        - 'projectId'
+      allowCredentials: true
+    routeSelectionExpression: $request.body.action
+    connectTimeout: 30000
+    idleTimeout: 300
+
+functions:
+  websocketHandler:
+    handler: socket/socketServer.handler
+    environment:
+      STAGE: ${opt:stage, 'production'}
+      WEBSOCKET_ENDPOINT: ${self:custom.websocketEndpoint}
+    events:
+      - websocket:
+          route: $connect
+          authorizer:
+            name: auth
+            identitySource:
+              - 'route.request.querystring.projectId'
+              - 'route.request.header.Authorization'
+          cors: true
+      - websocket:
+          route: $disconnect
+      - websocket:
+          route: joinProject
+      - websocket:
+          route: codeChange
+      - websocket:
+          route: $default
+    timeout: 30
+
+  auth:
+    handler: socket/auth.handler
+
+custom:
+  websocketEndpoint: !Join
+    - ''
+    - - 'wss://'
+      - !Ref WebsocketApi
+      - '.execute-api.'
+      - ${self:provider.region}
+      - '.amazonaws.com/'
+      - ${self:provider.environment.STAGE}
+
+resources:
+  Resources:
+    ConnectionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:service}-connections
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: connectionId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: connectionId
+            KeyType: HASH
+
+    ProjectConnectionsTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:service}-project-connections
+        BillingMode: PAY_PER_REQUEST
+        AttributeDefinitions:
+          - AttributeName: projectId
+            AttributeType: S
+          - AttributeName: connectionId
+            AttributeType: S
+        KeySchema:
+          - AttributeName: projectId
+            KeyType: HASH
+          - AttributeName: connectionId
+            KeyType: RANGE
+
+    GatewayResponseDefault4XX:
+      Type: 'AWS::ApiGateway::GatewayResponse'
+      Properties:
+        ResponseParameters:
+          gatewayresponse.header.Access-Control-Allow-Origin: "'*'"
+          gatewayresponse.header.Access-Control-Allow-Headers: "'Content-Type,X-Amz-Date,Authorization,X-Api-Key,projectId'"
+        ResponseType: DEFAULT_4XX
+        RestApiId: !Ref WebsocketApi
+        StatusCode: '401'

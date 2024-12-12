@@ -16,6 +16,7 @@ const path = require('path');
 const s3 = new AWS.S3();
 const dynamoDB = new AWS.DynamoDB.DocumentClient();
 const docker = new Docker();
+const socketServer = require('./socket/socketServer');
 
 // Express 앱 및 HTTP 서버 초기화
 const app = express();
@@ -27,6 +28,56 @@ class ContainerManager {
     this.containers = new Map();
     this.terminals = new Map();
   }
+  
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:3000",
+    methods: ["GET", "POST", "PUT", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
+  },
+  path: "/socket",  // 소켓 경로 지정
+  transports: ['websocket', 'polling'],  // 전송 방식 명시
+  pingTimeout: 60000,  // 핑 타임아웃 증가
+  pingInterval: 25000,
+  allowEIO3: true     // Engine.IO 3 허용
+
+// 터미널 명령어 핸들러
+const commands = {
+  async pwd(session, socket) {
+    socket.emit('terminal-output', '\r\n');
+    socket.emit('terminal-output', session.currentPath);
+    socket.emit('terminal-output', '\r\n\r\n');
+  },
+
+  async ls(session, socket, args) {
+    try {
+      // 현재 경로에서 마지막 슬래시 확인하고 정규화
+      const currentPrefix = session.currentPath.slice(1);  // 앞의 '/' 제거
+      const normalizedPrefix = currentPrefix.endsWith('/') ? currentPrefix : `${currentPrefix}/`;
+
+      const params = {
+        Bucket: process.env.S3_BUCKET_NAME,
+        Prefix: normalizedPrefix,
+        Delimiter: '/'
+      };
+
+      const data = await s3.listObjectsV2(params).promise();
+      socket.emit('terminal-output', '\r\n');
+
+      let hasContent = false;
+
+      // 폴더 목록 (CommonPrefixes)
+      if (data.CommonPrefixes && data.CommonPrefixes.length > 0) {
+        for (const prefix of data.CommonPrefixes) {
+          // 현재 경로의 직계 하위 폴더만 표시
+          const folderName = prefix.Prefix.slice(normalizedPrefix.length).split('/')[0];
+          if (folderName) {
+            socket.emit('terminal-output', `\x1b[34m${folderName}/\x1b[0m  `);
+            hasContent = true;
+          }
+        }
+      }
 
   // 컨테이너 생성 또는 가져오기
   async getOrCreateContainer(projectId) {
@@ -151,14 +202,7 @@ class ContainerManager {
 // 컨테이너 매니저 인스턴스 생성
 const containerManager = new ContainerManager();
 
-// Socket.IO 설정
-const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:3000",
-    methods: ["GET", "POST", "PUT"],
-    credentials: true
-  }
-});
+socketServer(io);  // Socket.IO 서버 초기화
 
 // Express 미들웨어 설정
 app.use(cors());
