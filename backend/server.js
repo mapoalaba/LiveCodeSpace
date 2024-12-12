@@ -14,9 +14,24 @@ const path = require('path');
 const AWS = require('aws-sdk');
 const s3 = new AWS.S3();
 const dynamoDB = new AWS.DynamoDB.DocumentClient();
+const socketServer = require('./socket/socketServer');
 
 const app = express();
 const server = http.createServer(app);
+
+
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:3000",
+    methods: ["GET", "POST", "PUT", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
+  },
+  path: "/socket",  // 소켓 경로 지정
+  transports: ['websocket', 'polling'],  // 전송 방식 명시
+  pingTimeout: 60000,  // 핑 타임아웃 증가
+  pingInterval: 25000,
+  allowEIO3: true     // Engine.IO 3 허용
 
 // 터미널 명령어 핸들러
 const commands = {
@@ -149,14 +164,7 @@ const commands = {
   }
 };
 
-// Socket.IO 설정
-const io = new Server(server, {
-  cors: {
-    origin: "http://localhost:3000",
-    methods: ["GET", "POST", "PUT"],
-    credentials: true
-  }
-});
+socketServer(io);  // Socket.IO 서버 초기화
 
 // ===== 미들웨어 설정 =====
 app.use(cors()); // CORS 활성화
