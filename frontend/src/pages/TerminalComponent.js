@@ -1,74 +1,179 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, forwardRef, useImperativeHandle } from 'react';
 import { Terminal } from 'xterm';
 import { FitAddon } from 'xterm-addon-fit';
 import { WebLinksAddon } from 'xterm-addon-web-links';
+import { SearchAddon } from 'xterm-addon-search';
+import io from 'socket.io-client';
 import 'xterm/css/xterm.css';
 
-const TerminalComponent = () => {
+const TerminalComponent = forwardRef(({ projectId }, ref) => {
   const terminalRef = useRef(null);
-  const terminalInstance = useRef(null);
-  const wsRef = useRef(null);
+  const socketRef = useRef(null);
+  const xtermRef = useRef(null);
+  const fitAddonRef = useRef(null);
+  const searchAddonRef = useRef(null);
+  const commandBufferRef = useRef('');
+
+  useImperativeHandle(ref, () => ({
+    clear: () => {
+      if (xtermRef.current) {
+        xtermRef.current.clear();
+      }
+    },
+    search: (query) => {
+      if (searchAddonRef.current) {
+        searchAddonRef.current.findNext(query);
+      }
+    }
+  }));
 
   useEffect(() => {
-    // 터미널 초기화
-    terminalInstance.current = new Terminal({
-      cursorBlink: true,
-      theme: {
-        background: '#1e1e1e',
-        foreground: '#ffffff'
-      },
-      fontSize: 14,
-      fontFamily: 'Consolas, "Liberation Mono", courier, monospace'
-    });
+    const initTerminal = async () => {
+      if (!terminalRef.current) return;
 
-    const fitAddon = new FitAddon();
-    terminalInstance.current.loadAddon(fitAddon);
-    terminalInstance.current.loadAddon(new WebLinksAddon());
+      try {
+        // 터미널 설정
+        const term = new Terminal({
+          cursorBlink: true,
+          fontSize: 14,
+          fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+          theme: {
+            background: '#1e1e1e',
+            foreground: '#ffffff',
+            cursor: '#ffffff'
+          },
+          allowTransparency: true,
+          scrollback: 1000,
+          rows: 24,
+          cols: 80,
+          convertEol: true,
+          cursorStyle: 'block'
+        });
 
-    terminalInstance.current.open(terminalRef.current);
-    fitAddon.fit();
+        // 애드온 설정
+        const fitAddon = new FitAddon();
+        const searchAddon = new SearchAddon();
+        const webLinksAddon = new WebLinksAddon();
 
-    // WebSocket 연결
-    wsRef.current = new WebSocket('ws://localhost:5002');
-    
-    wsRef.current.onopen = () => {
-      terminalInstance.current.writeln('Connected to terminal');
-    };
+        term.loadAddon(fitAddon);
+        term.loadAddon(searchAddon);
+        term.loadAddon(webLinksAddon);
 
-    wsRef.current.onmessage = (event) => {
-      terminalInstance.current.write(event.data);
-    };
+        // 참조 저장
+        xtermRef.current = term;
+        fitAddonRef.current = fitAddon;
+        searchAddonRef.current = searchAddon;
 
-    wsRef.current.onclose = () => {
-      terminalInstance.current.writeln('Disconnected from terminal');
-    };
+        // DOM에 터미널 연결
+        term.open(terminalRef.current);
+        
+        // 초기 크기 조정
+        setTimeout(() => {
+          try {
+            fitAddon.fit();
+          } catch (error) {
+            console.error('Initial fit failed:', error);
+          }
+        }, 100);
 
-    // 터미널 입력 처리
-    terminalInstance.current.onData(data => {
-      if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(data);
+        // 소켓 연결
+        const socket = io('http://13.125.78.134:5001', {
+          transports: ['websocket'],
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000
+        });
+
+        socketRef.current = socket;
+
+        // 소켓 이벤트 핸들러
+        socket.on('connect', () => {
+          console.log('Socket connected');
+          socket.emit('join-terminal', { projectId });
+          term.write('\r\n\x1b[32mTerminal connected\x1b[0m\r\n$ ');
+        });
+
+        socket.on('disconnect', () => {
+          console.log('Socket disconnected');
+          term.write('\r\n\x1b[31mConnection lost. Reconnecting...\x1b[0m\r\n');
+        });
+
+        socket.on('terminal-output', (data) => {
+          try {
+            term.write(data);
+          } catch (error) {
+            console.error('Error writing terminal output:', error);
+          }
+        });
+
+        socket.on('terminal-error', ({ error }) => {
+          try {
+            term.write(`\r\n\x1b[31mError: ${error}\x1b[0m\r\n$ `);
+          } catch (error) {
+            console.error('Error writing terminal error:', error);
+          }
+        });
+
+        // 입력 처리
+        term.onData((data) => {
+          try {
+            socket.emit('terminal-input', {
+              projectId,
+              data
+            });
+          } catch (error) {
+            console.error('Error sending terminal input:', error);
+          }
+        });
+
+        // 크기 조정 처리
+        const resizeObserver = new ResizeObserver(() => {
+          requestAnimationFrame(() => {
+            try {
+              fitAddon.fit();
+              socket.emit('terminal-resize', {
+                cols: term.cols,
+                rows: term.rows
+              });
+            } catch (error) {
+              console.error('Resize failed:', error);
+            }
+          });
+        });
+
+        resizeObserver.observe(terminalRef.current);
+
+        // 클린업
+        return () => {
+          try {
+            resizeObserver.disconnect();
+            socket.disconnect();
+            term.dispose();
+          } catch (error) {
+            console.error('Cleanup failed:', error);
+          }
+        };
+      } catch (error) {
+        console.error('Terminal initialization failed:', error);
       }
-    });
-
-    // 창 크기 조절 이벤트 처리
-    const handleResize = () => fitAddon.fit();
-    window.addEventListener('resize', handleResize);
-
-    return () => {
-      window.removeEventListener('resize', handleResize);
-      if (wsRef.current) wsRef.current.close();
-      if (terminalInstance.current) terminalInstance.current.dispose();
     };
-  }, []);
+
+    initTerminal();
+  }, [projectId]);
 
   return (
-    <div className="terminal-container">
-      <div className="terminal-header">
-        <span>Terminal</span>
-      </div>
-      <div ref={terminalRef} className="terminal" />
-    </div>
+    <div
+      ref={terminalRef}
+      className="terminal-container"
+      style={{
+        height: '100%',
+        width: '100%',
+        overflow: 'hidden',
+        backgroundColor: '#1e1e1e',
+        padding: '4px'
+      }}
+    />
   );
-};
+});
 
 export default TerminalComponent;
