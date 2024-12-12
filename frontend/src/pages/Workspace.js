@@ -15,10 +15,17 @@ import {
   mdiFile
 } from '@mdi/js';
 import "../styles/Workspace.css";
+import { io } from "socket.io-client";
 
+// 파일 최상단에 socketRef를 컴포넌트 외부에 선언
+let globalSocketRef = null;
 
+// 컴포넌트 최상단에 Refs 추가
 const Workspace = () => {
   const { projectId } = useParams();
+  const initPromiseRef = useRef(null);
+  const socketInitializedRef = useRef(false); // 초기화 여부 추적을 위한 새로운 ref
+
   const [fileTree, setFileTree] = useState([]);
   const [expandedFolders, setExpandedFolders] = useState(new Set());
   const [currentFolder, setCurrentFolder] = useState("");
@@ -34,14 +41,52 @@ const Workspace = () => {
   const [draggedNode, setDraggedNode] = useState(null);
   const editorRef = useRef(null);
   const autoSaveIntervalRef = useRef(null);
+  const [socket, setSocket] = useState(null);
+  const [activeUsers, setActiveUsers] = useState(0);
+  const debounceTimeout = useRef(null);
 
   // 자동 저장 설정
   const AUTO_SAVE_INTERVAL = 30000; // 30초
+
+  // socket 관련 로직 수정
+  const sendWebSocketMessage = (actionType, data) => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !projectId) {
+      console.warn('[WS] Socket not ready or projectId missing');
+      return;
+    }
+  
+    try {
+      const message = JSON.stringify({
+        action: actionType,
+        projectId,
+        ...data
+      });
+      console.log('[WS] Sending message:', message);
+      socket.send(message);
+    } catch (error) {
+      console.error('[WS] Send error:', error);
+    }
+  };
 
   // 파일 내용 변경 감지
   const handleEditorChange = (value) => {
     setFileContent(value);
     setHasUnsavedChanges(true);
+
+    if (debounceTimeout.current) {
+      clearTimeout(debounceTimeout.current);
+    }
+
+    // 현재 파일이 없거나 소켓이 없는 경우 중단
+    if (!socket || !currentFile) return;
+
+    debounceTimeout.current = setTimeout(() => {
+      sendWebSocketMessage('codeChange', {
+        projectId,
+        fileId: currentFile,
+        content: value
+      });
+    }, 500);
   };
 
   const fetchFileTree = useCallback(async (parentId = 'root') => {
@@ -361,6 +406,13 @@ const Workspace = () => {
           })
         );
       }
+
+      if (socket) {
+        sendWebSocketMessage('folderCreate', { 
+          projectId, 
+          folder: createdItem 
+        });
+      }
     } catch (error) {
       console.error("폴더 생성 중 오류:", error);
       alert("폴더 생성에 실패했습니다.");
@@ -414,6 +466,13 @@ const Workspace = () => {
       // 생성된 파일 자동 선택 (선택 사항)
       setCurrentFile(createdFile.id);
       setFileContent("");  // 새 파일은 빈 내용으로 시작
+
+      if (socket) {
+        sendWebSocketMessage('fileCreate', { 
+          projectId, 
+          file: createdFile 
+        });
+      }
   
     } catch (error) {
       console.error("파일 생성 중 오류:", error);
@@ -475,6 +534,14 @@ const Workspace = () => {
         setFileContent("// 코드를 작성하세요!");
       }
 
+      if (socket) {
+        sendWebSocketMessage('itemDelete', { 
+          projectId, 
+          itemId: node.id, 
+          itemType: node.type 
+        });
+      }
+
     } catch (error) {
       console.error('Delete failed:', error);
       alert(error.message);
@@ -531,7 +598,7 @@ const Workspace = () => {
         const updateNode = (nodes) => {
           return nodes.map(n => {
             if (n.id === node.id) {
-              // 현재 노드 업데이트
+              // 현재 노드 ���데이트
               return {
                 ...n,
                 name: newName,
@@ -559,6 +626,14 @@ const Workspace = () => {
       // 현재 파일인 경우 현재 파일 이름 업데이트
       if (node.id === currentFile) {
         setCurrentFile(data.updatedItem.id);
+      }
+
+      if (socket) {
+        sendWebSocketMessage('itemRename', { 
+          projectId, 
+          itemId: node.id, 
+          newName 
+        });
       }
   
     } catch (error) {
@@ -721,6 +796,14 @@ const Workspace = () => {
       }
 
       await fetchFileTree();
+
+      if (socket) {
+        sendWebSocketMessage('itemMove', { 
+          projectId, 
+          itemId: draggedData.id, 
+          newParentId: targetNode.id 
+        });
+      }
     } catch (error) {
       console.error("Error moving item:", error);
       alert(error.message);
@@ -860,9 +943,6 @@ const Workspace = () => {
       case 'bat':
         return <Icon path={mdiConsole} size={1} />;
       case 'properties':
-        return <Icon path={mdiCog} size={1} />;
-      case 'kts':
-        return <Icon path={mdiLanguageKotlin} size={1} />;
       default:
         return <Icon path={mdiFile} size={1} />;
     }
@@ -895,8 +975,83 @@ const Workspace = () => {
     }
   }, [currentFile, hasUnsavedChanges, saveFileContent]);
 
+  useEffect(() => {
+    let socket = null;
+
+    const initSocket = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!projectId || !token) return;
+
+        socket = io("http://localhost:5001", {
+          path: "/socket",
+          transports: ['websocket', 'polling'],
+          auth: { token },
+          query: { projectId },
+          reconnection: true,
+          reconnectionAttempts: 5,
+          reconnectionDelay: 1000,
+          autoConnect: true
+        });
+
+        socket.on("connect_error", (error) => {
+          console.log("[Socket.IO] Connection Error:", error);
+        });
+
+        socket.on("connect", () => {
+          console.log("[Socket.IO] Connected");
+          socket.emit("joinProject", projectId);
+        });
+
+        socket.on("activeUsers", ({ count }) => {
+          setActiveUsers(count);
+        });
+
+        socket.on("codeUpdate", ({ fileId, content, senderId }) => {
+          if (fileId === currentFile && senderId !== socket.id) {
+            setFileContent(content);
+          }
+        });
+
+        socket.on("fileTreeUpdate", () => {
+          fetchFileTree();
+        });
+
+        socket.on("disconnect", () => {
+          console.log("[Socket.IO] Disconnected");
+        });
+
+        setSocket(socket);
+      } catch (error) {
+        console.error("[Socket.IO] Init error:", error);
+      }
+    };
+
+    initSocket();
+
+    return () => {
+      if (socket) {
+        socket.disconnect();
+      }
+    };
+  }, [projectId]);
+
+  // 메시지 전송 함수 수정
+  const sendSocketMessage = useCallback((eventName, data) => {
+    if (!socket?.connected) {
+      console.warn("[Socket.IO] Not connected");
+      return;
+    }
+    socket.emit(eventName, { ...data, projectId });
+  }, [socket, projectId]);
+
   return (
     <div className="workspace">
+      <div className="workspace-header">
+        <div className="active-users">
+          🟢 활성 사용자: {activeUsers}명
+        </div>
+      </div>
       <div className="sidebar">
         <div className="sidebar-header">
           <div className="search-box">

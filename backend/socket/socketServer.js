@@ -1,20 +1,84 @@
 module.exports = (io) => {
+  const projectClients = new Map();
+
+  const updateActiveUsers = (projectId) => {
+    const clients = projectClients.get(projectId) || new Set();
+    io.to(projectId).emit("activeUsers", { count: clients.size });
+  };
+
   io.on("connection", (socket) => {
-    console.log("New client connected:", socket.id);
+    console.log("[Socket.IO] New connection:", socket.id);
 
+    // 인증 처리
+    socket.on("authenticate", ({ token, projectId }) => {
+      if (!token || !projectId) {
+        socket.disconnect();
+        return;
+      }
+      socket.projectId = projectId;
+      socket.auth = { token };
+    });
+
+    // 프로젝트 참여
     socket.on("joinProject", (projectId) => {
-      socket.join(projectId); // 프로젝트 방에 참여
-      console.log(`Client ${socket.id} joined project ${projectId}`);
+      if (!projectId) return;
+      
+      if (socket.currentProject) {
+        socket.leave(socket.currentProject);
+        const clients = projectClients.get(socket.currentProject);
+        if (clients) {
+          clients.delete(socket.id);
+          updateActiveUsers(socket.currentProject);
+        }
+      }
+
+      socket.join(projectId);
+      socket.currentProject = projectId;
+
+      if (!projectClients.has(projectId)) {
+        projectClients.set(projectId, new Set());
+      }
+      projectClients.get(projectId).add(socket.id);
+      updateActiveUsers(projectId);
     });
 
-    socket.on("codeChange", ({ projectId, code }) => {
-      console.log(`Code updated in project ${projectId}:`, code);
-      // 같은 방에 있는 다른 클라이언트들에게 코드 변경 사항 전송
-      socket.to(projectId).emit("codeUpdate", { code });
+    // 코드 변경 이벤트
+    socket.on("codeChange", ({ fileId, content }) => {
+      if (!socket.currentProject) return;
+      socket.to(socket.currentProject).emit("codeUpdate", {
+        fileId,
+        content,
+        senderId: socket.id
+      });
     });
 
+    // 파일 시스템 이벤트들
+    socket.on("fileCreate", ({ file }) => {
+      if (!socket.currentProject) return;
+      socket.to(socket.currentProject).emit("fileTreeUpdate", { 
+        type: 'create', 
+        item: file 
+      });
+    });
+
+    socket.on("folderCreate", ({ folder }) => {
+      if (!socket.currentProject) return;
+      socket.to(socket.currentProject).emit("fileTreeUpdate", { 
+        type: 'create', 
+        item: folder 
+      });
+    });
+
+    // 연결 해제
     socket.on("disconnect", () => {
-      console.log("Client disconnected:", socket.id);
+      console.log("[Socket.IO] Disconnected:", socket.id);
+      if (socket.currentProject) {
+        const clients = projectClients.get(socket.currentProject);
+        if (clients) {
+          clients.delete(socket.id);
+          updateActiveUsers(socket.currentProject);
+        }
+      }
     });
   });
 };
