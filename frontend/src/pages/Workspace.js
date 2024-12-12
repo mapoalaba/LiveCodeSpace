@@ -13,27 +13,22 @@ import {
   mdiCog,
   mdiLanguageKotlin,
   mdiFile,
-    mdiArrowRight, 
+  mdiArrowRight, 
   mdiArrowDown, 
   mdiViewSplitVertical, 
   mdiMagnify 
 } from '@mdi/js';
 import "../styles/Workspace.css";
 import { io } from "socket.io-client";
+
 import TerminalComponent from './TerminalComponent';
 import TerminalTabs from '../components/TerminalTabs';
 import TerminalControls from '../components/TerminalControls';
 import TerminalSearch from '../components/TerminalSearch';
 
-// 파일 최상단에 socketRef를 컴포넌트 외부에 선언
-let globalSocketRef = null;
 
-// 컴포넌트 최상단에 Refs 추가
 const Workspace = () => {
   const { projectId } = useParams();
-  const initPromiseRef = useRef(null);
-  const socketInitializedRef = useRef(false); // 초기화 여부 추적을 위한 새로운 ref
-
   const [fileTree, setFileTree] = useState([]);
   const [expandedFolders, setExpandedFolders] = useState(new Set());
   const [currentFolder, setCurrentFolder] = useState("");
@@ -140,7 +135,7 @@ const Workspace = () => {
       console.log(`Fetching file tree for project: ${projectId}, parentId: ${parentId}`);
   
       const response = await fetch(
-        `http://13.125.78.134:5001/api/filesystem/${projectId}/items?parentId=${parentId === 'root' ? '' : parentId}`,
+        `http://localhost:5001/api/filesystem/${projectId}/items?parentId=${parentId === 'root' ? '' : parentId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -225,7 +220,7 @@ const Workspace = () => {
   
         const token = localStorage.getItem("token");
         const response = await fetch(
-          `http://13.125.78.134:5001/api/filesystem/${projectId}/items?parentId=${folder.id}`,
+          `http://localhost:5001/api/filesystem/${projectId}/items?parentId=${folder.id}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -284,7 +279,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://13.125.78.134:5001/api/filesystem/items/${file.id}/content`,
+        `http://localhost:5001/api/filesystem/items/${file.id}/content`,
         {
           headers: { Authorization: `Bearer ${token}` }
         }
@@ -316,7 +311,7 @@ const Workspace = () => {
 
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://13.125.78.134:5001/api/filesystem/items/${currentFile}/content`,
+        `http://localhost:5001/api/filesystem/items/${currentFile}/content`,
         {
           method: "PUT",
           headers: {
@@ -387,16 +382,6 @@ const Workspace = () => {
       console.error("파일 데이터가 유효하지 않습니다:", file);
       return;
     }
-    
-    // 파일을 열 때 joinFile 이벤트 발생
-    if (socket) {
-      const userName = localStorage.getItem('userName') || '익명';
-      socket.emit("joinFile", {
-        fileId: file.id,
-        userName
-      });
-    }
-    
     fetchFileContent(file);
   };
 
@@ -407,7 +392,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://13.125.78.134:5001/api/filesystem/${projectId}/items`,
+        `http://localhost:5001/api/filesystem/${projectId}/items`,
         {
           method: "POST",
           headers: {
@@ -473,7 +458,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://13.125.78.134:5001/api/filesystem/${projectId}/items`,
+        `http://localhost:5001/api/filesystem/${projectId}/items`,
         {
           method: "POST",
           headers: {
@@ -529,7 +514,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://13.125.78.134:5001/api/filesystem/items/${node.id}`,
+        `http://localhost:5001/api/filesystem/items/${node.id}`,
         {
           method: "DELETE",
           headers: {
@@ -618,7 +603,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://13.125.78.134:5001/api/filesystem/items/${node.id}/rename`,
+        `http://localhost:5001/api/filesystem/items/${node.id}/rename`,
         {
           method: "PUT",
           headers: {
@@ -820,7 +805,7 @@ const Workspace = () => {
 
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://13.125.78.134:5001/api/filesystem/items/${draggedData.id}/move`,
+        `http://localhost:5001/api/filesystem/items/${draggedData.id}/move`,
         {
           method: "PUT",
           headers: {
@@ -866,7 +851,7 @@ const Workspace = () => {
       const token = localStorage.getItem("token");
       
       const response = await fetch(
-        `http://13.125.78.134:5001/api/filesystem/items/${draggedData.id}/move`,
+        `http://localhost:5001/api/filesystem/items/${draggedData.id}/move`,
         {
           method: "PUT",
           headers: {
@@ -902,7 +887,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://13.125.78.134:5001/api/filesystem/${projectId}/search?query=${encodeURIComponent(query)}`,
+        `http://localhost:5001/api/filesystem/${projectId}/search?query=${encodeURIComponent(query)}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -986,6 +971,9 @@ const Workspace = () => {
       case 'bat':
         return <Icon path={mdiConsole} size={1} />;
       case 'properties':
+        return <Icon path={mdiCog} size={1} />;
+      case 'kts':
+        return <Icon path={mdiLanguageKotlin} size={1} />;
       default:
         return <Icon path={mdiFile} size={1} />;
     }
@@ -1148,96 +1136,6 @@ const handlePositionChange = () => {
         socket.on("fileTreeUpdate", () => {
         });
 
-        socket.on("fileCreated", ({ file }) => {
-          setFileTree(prevTree => {
-            const newTree = [...prevTree];
-            if (file.parentId) {
-              // 특정 폴더 내 생성
-              return newTree.map(node => {
-                if (node.id === file.parentId) {
-                  return {
-                    ...node,
-                    children: [...(node.children || []), file]
-                  };
-                }
-                if (node.type === 'folder' && node.children) {
-                  return {
-                    ...node,
-                    children: updateTreeNode(node.children, file.parentId, 
-                      [...(findNodeById(node.children, file.parentId)?.children || []), file])
-                  };
-                }
-                return node;
-              });
-            } else {
-              // 루트에 생성
-              return [...newTree, file];
-            }
-          });
-        });
-  
-        socket.on("folderCreated", ({ folder }) => {
-          setFileTree(prevTree => {
-            const newTree = [...prevTree];
-            if (folder.parentId) {
-              // 특정 폴더 내 생성
-              return newTree.map(node => {
-                if (node.id === folder.parentId) {
-                  return {
-                    ...node,
-                    children: [...(node.children || []), folder]
-                  };
-                }
-                if (node.type === 'folder' && node.children) {
-                  return {
-                    ...node,
-                    children: updateTreeNode(node.children, folder.parentId, 
-                      [...(findNodeById(node.children, folder.parentId)?.children || []), folder])
-                  };
-                }
-                return node;
-              });
-            } else {
-              // 루트에 생성
-              return [...newTree, folder];
-            }
-          });
-        });
-  
-        socket.on("itemRenamed", ({ itemId, newName, newPath }) => {
-          setFileTree(prevTree => {
-            const updateNodeRecursive = (nodes) => {
-              return nodes.map(node => {
-                if (node.id === itemId) {
-                  return { ...node, name: newName, path: newPath };
-                }
-                if (node.children) {
-                  return { ...node, children: updateNodeRecursive(node.children) };
-                }
-                return node;
-              });
-            };
-            return updateNodeRecursive(prevTree);
-          });
-        });
-  
-        socket.on("itemDeleted", ({ itemId }) => {
-          setFileTree(prevTree => {
-            const deleteNodeRecursive = (nodes) => {
-              return nodes.filter(node => {
-                if (node.id === itemId) {
-                  return false;
-                }
-                if (node.children) {
-                  node.children = deleteNodeRecursive(node.children);
-                }
-                return true;
-              });
-            };
-            return deleteNodeRecursive(prevTree);
-          });
-        });
-
         setSocket(socket);
       } catch (error) {
         console.error("[Socket.IO] Init error:", error);
@@ -1342,21 +1240,8 @@ const handlePositionChange = () => {
               </span>
             )}
           </div>
-    <div className="current-editors">
-            {currentEditors.length > 0 && (
-              <span className="editors-list">
-                {currentEditors.map((editor, idx) => (
-                  <span key={idx} className="editor-name">
-                    {editor} 편집중
-                    {idx < currentEditors.length - 1 ? ', ' : ''}
-                  </span>
-                ))}
-              </span>
-            )}
-          </div>
-    <div className="editor-actions">
       {currentFile && (
-        <>
+        <div className="editor-actions">
           {fileHistory.length > 0 && (
             <button
               onClick={revertToLastVersion}
@@ -1373,8 +1258,12 @@ const handlePositionChange = () => {
           >
             💾 저장
           </button>
-        </>
+        </div>
       )}
+
+
+
+
       <button 
         className="terminal-toggle-icon"
         onClick={() => setShowTerminal(!showTerminal)}
@@ -1383,7 +1272,9 @@ const handlePositionChange = () => {
         <Icon path={mdiConsole} size={1} color={showTerminal ? "#0e639c" : "#cccccc"} />
       </button>
     </div>
-  </div>
+
+
+
 
   <div className="editor-content" style={{ 
     height: showTerminal ? `calc(100% - ${terminalHeight}px - 35px)` : 'calc(100% - 35px)'
@@ -1468,47 +1359,6 @@ const handlePositionChange = () => {
             <Icon path={mdiMagnify} size={0.8} />
           </button>
         </div>
-        {loading ? (
-          <div className="loading">Loading...</div>
-        ) : (
-          <>
-            <div className="editor-content">
-              <Editor
-                height="calc(100vh - 40px)"
-                defaultLanguage="javascript"
-                value={fileContent}
-                theme="vs-dark"
-                options={{
-                  fontSize: 14,
-                  minimap: { enabled: true },
-                  scrollBeyondLastLine: false,
-                  wordWrap: 'on',
-                  automaticLayout: true,
-                  lineNumbers: 'on',
-                  glyphMargin: true,
-                  folding: true,
-                  lineDecorationsWidth: 10,
-                  formatOnPaste: true,
-                  formatOnType: true
-                }}
-                onChange={handleEditorChange}
-                onMount={(editor) => {
-                  editorRef.current = editor;
-                }}
-              />
-              {typingUsers.length > 0 && (
-                <div className="typing-indicator">
-                  {typingUsers.map((user, index) => (
-                    <span key={index}>
-                      {user} 타이핑 중
-                      {index < typingUsers.length - 1 ? ', ' : ''}
-                    </span>
-                  ))}
-                </div>
-              )}
-            </div>
-          </>
-        )}
       </div>
 
       {/* Search Bar */}

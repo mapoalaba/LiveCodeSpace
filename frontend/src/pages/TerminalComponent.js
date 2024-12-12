@@ -29,7 +29,7 @@ const TerminalComponent = forwardRef(({ projectId }, ref) => {
 
   useEffect(() => {
     const initTerminal = async () => {
-      if (!terminalRef.current) return;
+      if (!terminalRef.current || xtermRef.current) return;
 
       try {
         // 터미널 설정
@@ -77,11 +77,13 @@ const TerminalComponent = forwardRef(({ projectId }, ref) => {
         }, 100);
 
         // 소켓 연결
-        const socket = io('http://13.125.78.134:5001', {
-          transports: ['websocket'],
+        const socket = io('http://localhost:5001', {
+          path: '/socket',
+          transports: ['websocket', 'polling'],
           reconnection: true,
           reconnectionAttempts: 5,
-          reconnectionDelay: 1000
+          reconnectionDelay: 1000,
+          withCredentials: true
         });
 
         socketRef.current = socket;
