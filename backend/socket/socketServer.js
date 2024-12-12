@@ -1,3 +1,8 @@
+const pty = require('node-pty');
+const os = require('os');
+
+const terminals = new Map();
+
 module.exports = (io) => {
   const projectClients = new Map();
   const typingUsers = new Map();  // 타이핑 중인 사용자 관리
@@ -18,160 +23,114 @@ module.exports = (io) => {
   };
 
   io.on("connection", (socket) => {
-    console.log("[Socket.IO] New connection:", socket.id);
+    console.log("[Socket.IO] User connected:", socket.id);
 
-    // 인증 처리
-    socket.on("authenticate", ({ token, projectId }) => {
-      if (!token || !projectId) {
-        socket.disconnect();
-        return;
-      }
-      socket.projectId = projectId;
-      socket.auth = { token };
-    });
+    socket.on('join-terminal', ({ projectId }) => {
+      try {
+        console.log("Client joined terminal:", projectId);
+        const terminalId = `${projectId}-${socket.id}`;
+        
+        // 터미널 프로세스 생성
+        const shell = os.platform() === 'win32' ? 'powershell.exe' : 'bash';
+        const term = pty.spawn(shell, [], {
+          name: 'xterm-color',
+          cols: 80,
+          rows: 24,
+          env: { 
+            ...process.env, 
+            TERM: 'xterm-256color',
+            PROJECT_ID: projectId
+          }
+        });
 
-    // 프로젝트 참여
-    socket.on("joinProject", (projectId) => {
-      if (!projectId) return;
-      
-      if (socket.currentProject) {
-        socket.leave(socket.currentProject);
-        const clients = projectClients.get(socket.currentProject);
-        if (clients) {
-          clients.delete(socket.id);
-          updateActiveUsers(socket.currentProject);
-        }
-      }
+        // 터미널 저장
+        terminals.set(terminalId, {
+          term,
+          projectId,
+          lastActivity: Date.now()
+        });
 
-      socket.join(projectId);
-      socket.currentProject = projectId;
+        // 터미널 출력 처리
+        term.onData((data) => {
+          socket.emit('terminal-output', data);
+        });
 
-      if (!projectClients.has(projectId)) {
-        projectClients.set(projectId, new Set());
-      }
-      projectClients.get(projectId).add(socket.id);
-      updateActiveUsers(projectId);
+        console.log("Terminal created for project", projectId);
+        term.write(`\r\nWelcome to project ${projectId}\r\n`);
 
-      // 현재 프로젝트의 파일 트리 상태 전송
-      socket.emit("requestFileTree");
-    });
+        // 터미널 입력 처리
+        socket.on('terminal-input', ({ projectId: inputProjectId, data }) => {
+          const terminal = terminals.get(terminalId);
+          if (terminal?.term) {
+            try {
+              terminal.lastActivity = Date.now();
+              terminal.term.write(data);
+            } catch (error) {
+              console.error('Terminal input error:', error);
+              socket.emit('terminal-error', { error: 'Failed to process input' });
+            }
+          }
+        });
 
-    // 실시간 코드 편집
-    socket.on("codeChange", ({ fileId, content, cursorPosition }) => {
-      if (!socket.currentProject) return;
-      socket.to(socket.currentProject).emit("codeUpdate", {
-        fileId,
-        content,
-        cursorPosition,
-        senderId: socket.id
-      });
-    });
+        // 터미널 크기 조정
+        socket.on('terminal-resize', ({ cols, rows }) => {
+          const terminal = terminals.get(terminalId);
+          if (!terminal?.term) {
+            console.log('Terminal not found for resize');
+            return;
+          }
 
-    // 파일 생성
-    socket.on("fileCreate", ({ file }) => {
-      if (!socket.currentProject) return;
-      socket.to(socket.currentProject).emit("fileCreated", { file });
-      io.to(socket.currentProject).emit("fileTreeUpdate");
-    });
+          try {
+            if (cols > 0 && rows > 0) {  // 유효한 크기인지 확인
+              terminal.term.resize(cols, rows);
+              console.log(`Terminal resized to ${cols}x${rows}`);
+            }
+          } catch (error) {
+            console.error('Terminal resize error:', error);
+            // 에러를 클라이언트에 알림
+            socket.emit('terminal-error', { 
+              error: 'Failed to resize terminal' 
+            });
+          }
+        });
 
-    // 폴더 생성
-    socket.on("folderCreate", ({ folder }) => {
-      if (!socket.currentProject) return;
-      socket.to(socket.currentProject).emit("folderCreated", { folder });
-      io.to(socket.currentProject).emit("fileTreeUpdate");
-    });
+        // 연결 해제 시 정리
+        socket.on('disconnect', () => {
+          try {
+            console.log("Cleaning up terminal:", terminalId);
+            const terminal = terminals.get(terminalId);
+            if (terminal?.term) {
+              terminal.term.kill();
+              terminals.delete(terminalId);
+              console.log(`Terminal ${terminalId} cleaned up`);
+            }
+          } catch (error) {
+            console.error('Terminal cleanup error:', error);
+          }
+        });
 
-    // 파일/폴더 삭제
-    socket.on("itemDelete", ({ itemId, itemType }) => {
-      if (!socket.currentProject) return;
-      socket.to(socket.currentProject).emit("itemDeleted", { itemId, itemType });
-      io.to(socket.currentProject).emit("fileTreeUpdate");
-    });
-
-    // 타이핑 상태 이벤트 처리 수정
-    socket.on("typing", ({ fileId, userName }) => {
-      if (!socket.currentProject) return;
-      
-      // 타이핑 상태 업데이트
-      const fileKey = `${socket.currentProject}:${fileId}`;
-      if (!typingUsers.has(fileKey)) {
-        typingUsers.set(fileKey, new Map());
-      }
-      const fileTypingUsers = typingUsers.get(fileKey);
-      fileTypingUsers.set(socket.id, {
-        userName,
-        timestamp: Date.now()
-      });
-
-      // 현재 타이핑 중인 모든 사용자 목록 전송
-      io.to(socket.currentProject).emit("userTyping", {
-        fileId,
-        users: Array.from(fileTypingUsers.values()).map(u => u.userName)
-      });
-    });
-
-    socket.on("stopTyping", ({ fileId }) => {
-      if (!socket.currentProject) return;
-      
-      const fileKey = `${socket.currentProject}:${fileId}`;
-      const fileTypingUsers = typingUsers.get(fileKey);
-      if (fileTypingUsers) {
-        fileTypingUsers.delete(socket.id);
-        io.to(socket.currentProject).emit("userTyping", {
-          fileId,
-          users: Array.from(fileTypingUsers.values()).map(u => u.userName)
+      } catch (error) {
+        console.error("Terminal creation error:", error);
+        socket.emit('terminal-error', { 
+          error: 'Failed to create terminal session' 
         });
       }
     });
-
-    socket.on("joinFile", ({ fileId, userName }) => {
-      if (!socket.currentProject || !fileId) return;
-      
-      if (!fileEditors.has(fileId)) {
-        fileEditors.set(fileId, new Set());
-      }
-      fileEditors.get(fileId).add(userName);
-      updateFileEditors(fileId, socket.currentProject);
-    });
-
-    socket.on("leaveFile", ({ fileId, userName }) => {
-      if (!fileId) return;
-      
-      const editors = fileEditors.get(fileId);
-      if (editors) {
-        editors.delete(userName);
-        updateFileEditors(fileId, socket.currentProject);
-      }
-    });
-
-    // 연결 해제
-    socket.on("disconnect", () => {
-      console.log("[Socket.IO] Disconnected:", socket.id);
-      if (socket.currentProject) {
-        const clients = projectClients.get(socket.currentProject);
-        if (clients) {
-          clients.delete(socket.id);
-          updateActiveUsers(socket.currentProject);
-        }
-      }
-      
-      // 모든 파일에서 해당 사용자의 타이핑 상태 제거
-      typingUsers.forEach((fileTypingUsers, fileKey) => {
-        if (fileTypingUsers.has(socket.id)) {
-          fileTypingUsers.delete(socket.id);
-          const [projectId, fileId] = fileKey.split(':');
-          io.to(projectId).emit("userTyping", {
-            fileId,
-            users: Array.from(fileTypingUsers.values()).map(u => u.userName)
-          });
-        }
-      });
-
-      // 모든 파일에서 사용자 제거
-      fileEditors.forEach((editors, fileId) => {
-        editors.delete(socket.userName);
-        updateFileEditors(fileId, socket.currentProject);
-      });
-    });
   });
+
+  // 비활성 터미널 정리
+  setInterval(() => {
+    const now = Date.now();
+    for (const [terminalId, terminal] of terminals.entries()) {
+      if (now - terminal.lastActivity > 30 * 60 * 1000) {
+        try {
+          terminal.term.kill();
+          terminals.delete(terminalId);
+          console.log(`Inactive terminal ${terminalId} cleaned up`);
+        } catch (error) {
+          console.error('Terminal cleanup error:', error);
+        }
+      }
+    }
+  }, 5 * 60 * 1000);
 };
