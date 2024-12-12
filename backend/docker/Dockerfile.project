@@ -1,0 +1,13 @@
+# Dockerfile.project
+
+FROM base-dev-environment:latest
+
+ARG PROJECT_ID
+ENV PROJECT_ID=${PROJECT_ID}
+
+# 프로젝트 디렉토리 생성
+RUN mkdir -p /app/${PROJECT_ID}
+WORKDIR /app/${PROJECT_ID}
+
+# 프로젝트 초기화
+CMD ["bash"]

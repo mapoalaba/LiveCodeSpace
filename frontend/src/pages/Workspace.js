@@ -140,7 +140,7 @@ const Workspace = () => {
       console.log(`Fetching file tree for project: ${projectId}, parentId: ${parentId}`);
   
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/${projectId}/items?parentId=${parentId === 'root' ? '' : parentId}`,
+        `http://13.125.78.134:5001/api/filesystem/${projectId}/items?parentId=${parentId === 'root' ? '' : parentId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -225,7 +225,7 @@ const Workspace = () => {
   
         const token = localStorage.getItem("token");
         const response = await fetch(
-          `http://localhost:5001/api/filesystem/${projectId}/items?parentId=${folder.id}`,
+          `http://13.125.78.134:5001/api/filesystem/${projectId}/items?parentId=${folder.id}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -284,7 +284,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/items/${file.id}/content`,
+        `http://13.125.78.134:5001/api/filesystem/items/${file.id}/content`,
         {
           headers: { Authorization: `Bearer ${token}` }
         }
@@ -316,7 +316,7 @@ const Workspace = () => {
 
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/items/${currentFile}/content`,
+        `http://13.125.78.134:5001/api/filesystem/items/${currentFile}/content`,
         {
           method: "PUT",
           headers: {
@@ -407,7 +407,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/${projectId}/items`,
+        `http://13.125.78.134:5001/api/filesystem/${projectId}/items`,
         {
           method: "POST",
           headers: {
@@ -473,7 +473,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/${projectId}/items`,
+        `http://13.125.78.134:5001/api/filesystem/${projectId}/items`,
         {
           method: "POST",
           headers: {
@@ -529,7 +529,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/items/${node.id}`,
+        `http://13.125.78.134:5001/api/filesystem/items/${node.id}`,
         {
           method: "DELETE",
           headers: {
@@ -618,7 +618,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/items/${node.id}/rename`,
+        `http://13.125.78.134:5001/api/filesystem/items/${node.id}/rename`,
         {
           method: "PUT",
           headers: {
@@ -820,7 +820,7 @@ const Workspace = () => {
 
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/items/${draggedData.id}/move`,
+        `http://13.125.78.134:5001/api/filesystem/items/${draggedData.id}/move`,
         {
           method: "PUT",
           headers: {
@@ -866,7 +866,7 @@ const Workspace = () => {
       const token = localStorage.getItem("token");
       
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/items/${draggedData.id}/move`,
+        `http://13.125.78.134:5001/api/filesystem/items/${draggedData.id}/move`,
         {
           method: "PUT",
           headers: {
@@ -902,7 +902,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/${projectId}/search?query=${encodeURIComponent(query)}`,
+        `http://13.125.78.134:5001/api/filesystem/${projectId}/search?query=${encodeURIComponent(query)}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
