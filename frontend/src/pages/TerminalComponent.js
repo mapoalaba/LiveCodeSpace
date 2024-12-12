@@ -77,7 +77,7 @@ const TerminalComponent = forwardRef(({ projectId }, ref) => {
         }, 100);
 
         // 소켓 연결
-        const socket = io('http://localhost:5001', {
+        const socket = io('http://13.125.78.134:5001', {
           transports: ['websocket'],
           reconnection: true,
           reconnectionAttempts: 5,

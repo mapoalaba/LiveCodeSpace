@@ -1,0 +1,23 @@
+version: '3'
+services:
+  base:
+    build:
+      context: .
+      dockerfile: docker/Dockerfile.base
+    image: base-dev-environment
+
+  main-server:
+    build: .
+    ports:
+      - "5001:5001"
+    environment:
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY}
+      - AWS_REGION=${AWS_REGION}
+      - S3_BUCKET_NAME=${S3_BUCKET_NAME}
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - workspace:/workspace
+
+volumes:
+  workspace:
