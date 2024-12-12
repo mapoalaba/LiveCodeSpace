@@ -1148,6 +1148,96 @@ const handlePositionChange = () => {
         socket.on("fileTreeUpdate", () => {
         });
 
+        socket.on("fileCreated", ({ file }) => {
+          setFileTree(prevTree => {
+            const newTree = [...prevTree];
+            if (file.parentId) {
+              // 특정 폴더 내 생성
+              return newTree.map(node => {
+                if (node.id === file.parentId) {
+                  return {
+                    ...node,
+                    children: [...(node.children || []), file]
+                  };
+                }
+                if (node.type === 'folder' && node.children) {
+                  return {
+                    ...node,
+                    children: updateTreeNode(node.children, file.parentId, 
+                      [...(findNodeById(node.children, file.parentId)?.children || []), file])
+                  };
+                }
+                return node;
+              });
+            } else {
+              // 루트에 생성
+              return [...newTree, file];
+            }
+          });
+        });
+  
+        socket.on("folderCreated", ({ folder }) => {
+          setFileTree(prevTree => {
+            const newTree = [...prevTree];
+            if (folder.parentId) {
+              // 특정 폴더 내 생성
+              return newTree.map(node => {
+                if (node.id === folder.parentId) {
+                  return {
+                    ...node,
+                    children: [...(node.children || []), folder]
+                  };
+                }
+                if (node.type === 'folder' && node.children) {
+                  return {
+                    ...node,
+                    children: updateTreeNode(node.children, folder.parentId, 
+                      [...(findNodeById(node.children, folder.parentId)?.children || []), folder])
+                  };
+                }
+                return node;
+              });
+            } else {
+              // 루트에 생성
+              return [...newTree, folder];
+            }
+          });
+        });
+  
+        socket.on("itemRenamed", ({ itemId, newName, newPath }) => {
+          setFileTree(prevTree => {
+            const updateNodeRecursive = (nodes) => {
+              return nodes.map(node => {
+                if (node.id === itemId) {
+                  return { ...node, name: newName, path: newPath };
+                }
+                if (node.children) {
+                  return { ...node, children: updateNodeRecursive(node.children) };
+                }
+                return node;
+              });
+            };
+            return updateNodeRecursive(prevTree);
+          });
+        });
+  
+        socket.on("itemDeleted", ({ itemId }) => {
+          setFileTree(prevTree => {
+            const deleteNodeRecursive = (nodes) => {
+              return nodes.filter(node => {
+                if (node.id === itemId) {
+                  return false;
+                }
+                if (node.children) {
+                  node.children = deleteNodeRecursive(node.children);
+                }
+                return true;
+              });
+            };
+            return deleteNodeRecursive(prevTree);
+          });
+        });
+
         setSocket(socket);
       } catch (error) {
         console.error("[Socket.IO] Init error:", error);

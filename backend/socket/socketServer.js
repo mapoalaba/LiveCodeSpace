@@ -23,8 +23,6 @@ module.exports = (io) => {
   };
 
   io.on("connection", (socket) => {
-    console.log("[Socket.IO] User connected:", socket.id);
-
     socket.on('join-terminal', ({ projectId }) => {
       try {
         console.log("Client joined terminal:", projectId);
