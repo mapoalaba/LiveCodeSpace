@@ -8,6 +8,7 @@ const bodyParser = require("body-parser");
 const authRoutes = require("./routes/authRoutes");
 const projectRoutes = require("./routes/projectRoutes");
 const fileSystemRouter = require('./routes/fileSystem');
+const terminalRoutes = require('./routes/terminalRoutes');
 const pty = require('node-pty');
 const os = require('os');
 const path = require('path');
@@ -149,14 +150,25 @@ const commands = {
   }
 };
 
+
+
 // Socket.IO 설정
+const socketServer = require('./socket/socketServer');
 const io = new Server(server, {
   cors: {
     origin: "http://localhost:3000",
-    methods: ["GET", "POST", "PUT"],
-    credentials: true
-  }
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
+  },
+  path: "/socket",  // 소켓 경로 지정
+  transports: ['websocket', 'polling'],  // 전송 방식 명시
+  pingTimeout: 60000,  // 핑 타임아웃 증가
+  pingInterval: 25000,
+  allowEIO3: true     // Engine.IO 3 허용
 });
+
+socketServer(io);  // Socket.IO 서버 초기화
 
 // ===== 미들웨어 설정 =====
 app.use(cors()); // CORS 활성화
@@ -181,159 +193,161 @@ app.use(express.json());
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use('/api/filesystem', fileSystemRouter);
+app.use('/api/terminal', terminalRoutes);
 
-// 터미널 세션 저장소
-const terminals = new Map();
 
-// Socket.IO 이벤트 처리
-io.on("connection", (socket) => {
-  console.log(`Client connected: ${socket.id}`);
+// // 터미널 세션 저장소
+// const terminals = new Map();
 
-  // 프로젝트 방에 참여
-  socket.on("joinProject", (projectId) => {
-    socket.join(projectId);
-    console.log(`[Socket.IO] User ${socket.id} joined project room: ${projectId}`);
-  });
+// // Socket.IO 이벤트 처리
+// io.on("connection", (socket) => {
+//   console.log(`Client connected: ${socket.id}`);
 
-  // 코드 변경 이벤트 처리
-  socket.on("codeChange", ({ projectId, code }) => {
-    console.log(`[Socket.IO] Code update for project ${projectId}:`, code);
-    // 프로젝트 방에 있는 다른 사용자들에게 코드 업데이트 브로드캐스트
-    socket.broadcast.to(projectId).emit("codeUpdate", { code });
-  });
+//   // 프로젝트 방에 참여
+//   socket.on("joinProject", (projectId) => {
+//     socket.join(projectId);
+//     console.log(`[Socket.IO] User ${socket.id} joined project room: ${projectId}`);
+//   });
 
-  // 터미널 세션 생성
-  socket.on('join-terminal', async ({ projectId }) => {
-    try {
-      console.log(`Creating terminal for project: ${projectId}`);
+//   // 코드 변경 이벤트 처리
+//   socket.on("codeChange", ({ projectId, code }) => {
+//     console.log(`[Socket.IO] Code update for project ${projectId}:`, code);
+//     // 프로젝트 방에 있는 다른 사용자들에게 코드 업데이트 브로드캐스트
+//     socket.broadcast.to(projectId).emit("codeUpdate", { code });
+//   });
+
+//   // 터미널 세션 생성
+//   socket.on('join-terminal', async ({ projectId }) => {
+//     try {
+//       console.log(`Creating terminal for project: ${projectId}`);
       
-      // 기존 세션이 있다면 정리
-      if (terminals.has(socket.id)) {
-        const existingSession = terminals.get(socket.id);
-        if (existingSession.term) {
-          existingSession.term.kill();
-        }
-        terminals.delete(socket.id);
-      }
+//       // 기존 세션이 있다면 정리
+//       if (terminals.has(socket.id)) {
+//         const existingSession = terminals.get(socket.id);
+//         if (existingSession.term) {
+//           existingSession.term.kill();
+//         }
+//         terminals.delete(socket.id);
+//       }
 
-      // 새 터미널 세션 생성
-      let session = {
-        projectId,
-        currentPath: `/${projectId}`,
-        currentCommand: '',
-        lastActivity: Date.now()
-      };
+//       // 새 터미널 세션 생성
+//       let session = {
+//         projectId,
+//         currentPath: `/${projectId}`,
+//         currentCommand: '',
+//         lastActivity: Date.now()
+//       };
       
-      terminals.set(socket.id, session);
-      console.log(`Terminal session created for socket ${socket.id}`);
+//       terminals.set(socket.id, session);
+//       console.log(`Terminal session created for socket ${socket.id}`);
 
-      // 초기 프롬프트 전송
-      socket.emit('terminal-output', `${session.currentPath} $ `);
+//       // 초기 프롬프트 전송
+//       socket.emit('terminal-output', `${session.currentPath} $ `);
       
-      socket.join(`terminal-${projectId}`);
-    } catch (error) {
-      console.error('Terminal creation error:', error);
-      socket.emit('terminal-error', { error: error.message });
-    }
-  });
+//       socket.join(`terminal-${projectId}`);
+//     } catch (error) {
+//       console.error('Terminal creation error:', error);
+//       socket.emit('terminal-error', { error: error.message });
+//     }
+//   });
 
-  // 터미널 입력 처리
-  socket.on('terminal-input', async ({ projectId, data }) => {
-    try {
-      let session = terminals.get(socket.id);
-      if (!session) {
-        session = {
-          projectId,
-          currentPath: `/${projectId}`,
-          currentCommand: '',
-          lastActivity: Date.now()
-        };
-        terminals.set(socket.id, session);
-      }
+//   // 터미널 입력 처리
+//   socket.on('terminal-input', async ({ projectId, data }) => {
+//     try {
+//       let session = terminals.get(socket.id);
+//       if (!session) {
+//         session = {
+//           projectId,
+//           currentPath: `/${projectId}`,
+//           currentCommand: '',
+//           lastActivity: Date.now()
+//         };
+//         terminals.set(socket.id, session);
+//       }
   
-      session.lastActivity = Date.now();
+//       session.lastActivity = Date.now();
   
-      if (data === '\r' || data === '\n') {
-        const commandLine = session.currentCommand.trim();
-        const [command, ...args] = commandLine.split(' ');
+//       if (data === '\r' || data === '\n') {
+//         const commandLine = session.currentCommand.trim();
+//         const [command, ...args] = commandLine.split(' ');
   
-        if (command && commands[command]) {
-          await commands[command](session, socket, args);
-        } else if (command) {
-          socket.emit('terminal-output', '\r\nCommand not found. Type "help" for available commands\r\n\r\n');
-        }
+//         if (command && commands[command]) {
+//           await commands[command](session, socket, args);
+//         } else if (command) {
+//           socket.emit('terminal-output', '\r\nCommand not found. Type "help" for available commands\r\n\r\n');
+//         }
   
-        session.currentCommand = '';
-        socket.emit('terminal-output', `${session.currentPath}$ `);
-      } else if (data === '\b' || data === '\x7f') {
-        if (session.currentCommand.length > 0) {
-          session.currentCommand = session.currentCommand.slice(0, -1);
-          socket.emit('terminal-output', '\b \b');
-        }
-      } else {
-        session.currentCommand += data;
-        socket.emit('terminal-output', data);
-      }
-    } catch (error) {
-      console.error('Terminal input error:', error);
-      socket.emit('terminal-error', { error: error.message });
-    }
-  });
+//         session.currentCommand = '';
+//         socket.emit('terminal-output', `${session.currentPath}$ `);
+//       } else if (data === '\b' || data === '\x7f') {
+//         if (session.currentCommand.length > 0) {
+//           session.currentCommand = session.currentCommand.slice(0, -1);
+//           socket.emit('terminal-output', '\b \b');
+//         }
+//       } else {
+//         session.currentCommand += data;
+//         socket.emit('terminal-output', data);
+//       }
+//     } catch (error) {
+//       console.error('Terminal input error:', error);
+//       socket.emit('terminal-error', { error: error.message });
+//     }
+//   });
   
-  // 디버깅을 위한 추가 이벤트 리스너
-  socket.on('error', (error) => {
-    console.error('Socket error:', error);
-  });
+//   // 디버깅을 위한 추가 이벤트 리스너
+//   socket.on('error', (error) => {
+//     console.error('Socket error:', error);
+//   });
   
-  socket.on('disconnect', () => {
-    console.log('Client disconnected:', socket.id);
-    const session = terminals.get(socket.id);
-    if (session) {
-      terminals.delete(socket.id);
-    }
-  });
+//   socket.on('disconnect', () => {
+//     console.log('Client disconnected:', socket.id);
+//     const session = terminals.get(socket.id);
+//     if (session) {
+//       terminals.delete(socket.id);
+//     }
+//   });
 
-  // 터미널 크기 조정
-  socket.on('terminal-resize', ({ cols, rows }) => {
-    try {
-      const session = terminals.get(socket.id);
-      if (session && session.term) {
-        session.term.resize(cols, rows);
-      }
-    } catch (error) {
-      console.error('Terminal resize error:', error);
-    }
-  });
+//   // 터미널 크기 조정
+//   socket.on('terminal-resize', ({ cols, rows }) => {
+//     try {
+//       const session = terminals.get(socket.id);
+//       if (session && session.term) {
+//         session.term.resize(cols, rows);
+//       }
+//     } catch (error) {
+//       console.error('Terminal resize error:', error);
+//     }
+//   });
 
-  // 연결 해제 처리
-  socket.on("disconnect", () => {
-    try {
-      console.log(`Client disconnected: ${socket.id}`);
-      const session = terminals.get(socket.id);
-      if (session) {
-        terminals.delete(socket.id);
-      }
-    } catch (error) {
-      console.error('Disconnect cleanup error:', error);
-    }
-  });
-});
+//   // 연결 해제 처리
+//   socket.on("disconnect", () => {
+//     try {
+//       console.log(`Client disconnected: ${socket.id}`);
+//       const session = terminals.get(socket.id);
+//       if (session) {
+//         terminals.delete(socket.id);
+//       }
+//     } catch (error) {
+//       console.error('Disconnect cleanup error:', error);
+//     }
+//   });
+// });
 
-// 비활성 터미널 정리
-setInterval(() => {
-  const now = Date.now();
-  for (const [socketId, session] of terminals.entries()) {
-    if (now - session.lastActivity > 1000 * 60 * 30) { // 30분 비활성
-      try {
-        session.term.kill();
-        terminals.delete(socketId);
-        console.log(`Inactive terminal ${socketId} cleaned up`);
-      } catch (error) {
-        console.error('Terminal cleanup error:', error);
-      }
-    }
-  }
-}, 1000 * 60 * 5); // 5분마다 체크
+// // 비활성 터미널 정리
+// setInterval(() => {
+//   const now = Date.now();
+//   for (const [socketId, session] of terminals.entries()) {
+//     if (now - session.lastActivity > 1000 * 60 * 30) { // 30분 비활성
+//       try {
+//         session.term.kill();
+//         terminals.delete(socketId);
+//         console.log(`Inactive terminal ${socketId} cleaned up`);
+//       } catch (error) {
+//         console.error('Terminal cleanup error:', error);
+//       }
+//     }
+//   }
+// }, 1000 * 60 * 5); // 5분마다 체크
 
 // ===== 에러 핸들링 =====
 // 404 핸들러

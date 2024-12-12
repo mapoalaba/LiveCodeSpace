@@ -13,12 +13,14 @@ import {
   mdiCog,
   mdiLanguageKotlin,
   mdiFile,
-    mdiArrowRight, 
+  mdiArrowRight, 
   mdiArrowDown, 
   mdiViewSplitVertical, 
   mdiMagnify 
 } from '@mdi/js';
 import "../styles/Workspace.css";
+import { io } from "socket.io-client";
+
 import TerminalComponent from './TerminalComponent';
 import TerminalTabs from '../components/TerminalTabs';
 import TerminalControls from '../components/TerminalControls';
@@ -44,6 +46,12 @@ const Workspace = () => {
   const [terminalHeight, setTerminalHeight] = useState(300); // 기본 높이
   const editorRef = useRef(null);
   const autoSaveIntervalRef = useRef(null);
+  const [socket, setSocket] = useState(null);
+  const [activeUsers, setActiveUsers] = useState(0);
+  const debounceTimeout = useRef(null);
+  const [typingUsers, setTypingUsers] = useState([]);
+  const typingTimeoutRef = useRef(null);
+  const [currentEditors, setCurrentEditors] = useState([]); // 추가: 현재 편집 중인 사용자 목록
   const [terminalPosition, setTerminalPosition] = useState('bottom');
   const [terminals, setTerminals] = useState([{ id: 1, active: true, title: 'Terminal 1' }]);
   const [activeTerminalId, setActiveTerminalId] = useState(1);
@@ -53,11 +61,68 @@ const Workspace = () => {
   // 자동 저장 설정
   const AUTO_SAVE_INTERVAL = 30000; // 30초
 
-  // 파일 내용 변경 감지
-  const handleEditorChange = (value) => {
+  // socket 관련 로직 수정
+  const sendWebSocketMessage = (actionType, data) => {
+    if (!socket || socket.readyState !== WebSocket.OPEN || !projectId) {
+      console.warn('[WS] Socket not ready or projectId missing');
+      return;
+    }
+  
+    try {
+      const message = JSON.stringify({
+        action: actionType,
+        projectId,
+        ...data
+      });
+      console.log('[WS] Sending message:', message);
+      socket.send(message);
+    } catch (error) {
+      console.error('[WS] Send error:', error);
+    }
+  };
+
+  // 파일 내용 변경 감지 함수 수정
+  const handleEditorChange = useCallback((value) => {
     setFileContent(value);
     setHasUnsavedChanges(true);
-  };
+  
+    if (debounceTimeout.current) {
+      clearTimeout(debounceTimeout.current);
+    }
+  
+    // 실시간 코드 변경 전송
+    if (socket && currentFile) {
+      debounceTimeout.current = setTimeout(() => {
+        socket.emit("codeChange", {
+          fileId: currentFile,
+          content: value,
+          cursorPosition: editorRef.current?.getPosition()
+        });
+
+        // 파일 편집 상태 전송
+        const userName = localStorage.getItem('userName') || '익명';
+        socket.emit("joinFile", {
+          fileId: currentFile,
+          userName
+        });
+      }, 100);
+  
+      // 타이핑 상태 전송
+      const userName = localStorage.getItem('userName') || '익명';
+      socket.emit("typing", {
+        fileId: currentFile,
+        userName: userName // 실제 사용자 이름 사용
+      });
+  
+      // 타이핑 중지 타이머 설정
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      typingTimeoutRef.current = setTimeout(() => {
+        socket.emit("stopTyping", { fileId: currentFile });
+      }, 1000);
+    }
+  }, [socket, currentFile]);
 
   const fetchFileTree = useCallback(async (parentId = 'root') => {
     try {
@@ -376,6 +441,10 @@ const Workspace = () => {
           })
         );
       }
+
+      if (socket && createdItem) {
+        socket.emit("folderCreate", { folder: createdItem });
+      }
     } catch (error) {
       console.error("폴더 생성 중 오류:", error);
       alert("폴더 생성에 실패했습니다.");
@@ -429,6 +498,10 @@ const Workspace = () => {
       // 생성된 파일 자동 선택 (선택 사항)
       setCurrentFile(createdFile.id);
       setFileContent("");  // 새 파일은 빈 내용으로 시작
+
+      if (socket && createdFile) {
+        socket.emit("fileCreate", { file: createdFile });
+      }
   
     } catch (error) {
       console.error("파일 생성 중 오류:", error);
@@ -488,6 +561,13 @@ const Workspace = () => {
       if (node.type === 'file' && node.id === currentFile) {
         setCurrentFile("");
         setFileContent("// 코드를 작성하세요!");
+      }
+
+      if (socket) {
+        socket.emit("itemDelete", {
+          itemId: node.id,
+          itemType: node.type
+        });
       }
 
     } catch (error) {
@@ -574,6 +654,14 @@ const Workspace = () => {
       // 현재 파일인 경우 현재 파일 이름 업데이트
       if (node.id === currentFile) {
         setCurrentFile(data.updatedItem.id);
+      }
+
+      if (socket) {
+        sendWebSocketMessage('itemRename', { 
+          projectId, 
+          itemId: node.id, 
+          newName 
+        });
       }
   
     } catch (error) {
@@ -736,6 +824,14 @@ const Workspace = () => {
       }
 
       await fetchFileTree();
+
+      if (socket) {
+        sendWebSocketMessage('itemMove', { 
+          projectId, 
+          itemId: draggedData.id, 
+          newParentId: targetNode.id 
+        });
+      }
     } catch (error) {
       console.error("Error moving item:", error);
       alert(error.message);
@@ -1005,10 +1101,70 @@ const handlePositionChange = () => {
     }
   }, [currentFile, hasUnsavedChanges, saveFileContent]);
 
+  useEffect(() => {
+    let socket = null;
+
+    const initSocket = async () => {
+      try {
+        const token = localStorage.getItem('token');
+        if (!projectId || !token) return;
+
+        socket = io(process.env.REACT_APP_SOCKET_URL || 'http://localhost:5001', {
+          path: "/socket",
+          auth: { token },
+          query: { projectId }
+        });
+
+        socket.on("connect", () => {
+          console.log("[Socket.IO] Connected");
+          socket.emit("joinProject", projectId);
+        });
+
+        socket.on("activeUsers", ({ count }) => {
+          setActiveUsers(count);
+        });
+
+        socket.on("codeUpdate", ({ fileId, content, cursorPosition, senderId }) => {
+          if (fileId === currentFile && senderId !== socket.id) {
+            setFileContent(content);
+            if (cursorPosition && editorRef.current) {
+              editorRef.current.setPosition(cursorPosition);
+            }
+          }
+        });
+
+        socket.on("fileTreeUpdate", () => {
+        });
+
+        setSocket(socket);
+      } catch (error) {
+        console.error("[Socket.IO] Init error:", error);
+      }
+    };
+
+    initSocket();
+
+    return () => {
+      if (socket) {
+        socket.disconnect();
+      }
+    };
+  }, [projectId, currentFile]);
+
+  // 메시지 전송 함수 수정
+  const sendSocketMessage = useCallback((eventName, data) => {
+    if (!socket?.connected) {
+      console.warn("[Socket.IO] Not connected");
+      return;
+    }
+    socket.emit(eventName, { ...data, projectId });
+  }, [socket, projectId]);
+
   return (
     <div className="workspace">
       <div className="sidebar">
         <div className="sidebar-header">
+        🟢 활성 사용자: {activeUsers}명
           <div className="search-box">
             <input
               type="text"
@@ -1072,9 +1228,20 @@ const handlePositionChange = () => {
         <span className="welcome-text">파일을 선택하세요</span>
       )}
     </div>
-    <div className="editor-actions">
+    <div className="current-editors">
+            {currentEditors.length > 0 && (
+              <span className="editors-list">
+                {currentEditors.map((editor, idx) => (
+                  <span key={idx} className="editor-name">
+                    {editor} 편집중
+                    {idx < currentEditors.length - 1 ? ', ' : ''}
+                  </span>
+                ))}
+              </span>
+            )}
+          </div>
       {currentFile && (
-        <>
+        <div className="editor-actions">
           {fileHistory.length > 0 && (
             <button
               onClick={revertToLastVersion}
@@ -1091,8 +1258,12 @@ const handlePositionChange = () => {
           >
             💾 저장
           </button>
-        </>
+        </div>
       )}
+
+
+
+
       <button 
         className="terminal-toggle-icon"
         onClick={() => setShowTerminal(!showTerminal)}
@@ -1101,7 +1272,9 @@ const handlePositionChange = () => {
         <Icon path={mdiConsole} size={1} color={showTerminal ? "#0e639c" : "#cccccc"} />
       </button>
     </div>
-  </div>
+
+
+
 
   <div className="editor-content" style={{ 
     height: showTerminal ? `calc(100% - ${terminalHeight}px - 35px)` : 'calc(100% - 35px)'
