@@ -1,10 +1,20 @@
 module.exports = (io) => {
   const projectClients = new Map();
   const typingUsers = new Map();  // 타이핑 중인 사용자 관리
+  const fileEditors = new Map(); // 파일별 편집 중인 사용자 관리
 
   const updateActiveUsers = (projectId) => {
     const clients = projectClients.get(projectId) || new Set();
     io.to(projectId).emit("activeUsers", { count: clients.size });
+  };
+
+  const updateFileEditors = (fileId, projectId) => {
+    const editors = fileEditors.get(fileId) || new Set();
+    console.log(`[Socket.IO] File ${fileId} editors:`, Array.from(editors));  // 로그 추가
+    io.to(projectId).emit("activeEditors", { 
+      fileId, 
+      editors: Array.from(editors) 
+    });
   };
 
   io.on("connection", (socket) => {
@@ -114,6 +124,26 @@ module.exports = (io) => {
       }
     });
 
+    socket.on("joinFile", ({ fileId, userName }) => {
+      if (!socket.currentProject || !fileId) return;
+      
+      if (!fileEditors.has(fileId)) {
+        fileEditors.set(fileId, new Set());
+      }
+      fileEditors.get(fileId).add(userName);
+      updateFileEditors(fileId, socket.currentProject);
+    });
+
+    socket.on("leaveFile", ({ fileId, userName }) => {
+      if (!fileId) return;
+      
+      const editors = fileEditors.get(fileId);
+      if (editors) {
+        editors.delete(userName);
+        updateFileEditors(fileId, socket.currentProject);
+      }
+    });
+
     // 연결 해제
     socket.on("disconnect", () => {
       console.log("[Socket.IO] Disconnected:", socket.id);
@@ -135,6 +165,12 @@ module.exports = (io) => {
             users: Array.from(fileTypingUsers.values()).map(u => u.userName)
           });
         }
+      });
+
+      // 모든 파일에서 사용자 제거
+      fileEditors.forEach((editors, fileId) => {
+        editors.delete(socket.userName);
+        updateFileEditors(fileId, socket.currentProject);
       });
     });
   });

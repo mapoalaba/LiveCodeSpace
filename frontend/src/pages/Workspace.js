@@ -46,6 +46,7 @@ const Workspace = () => {
   const debounceTimeout = useRef(null);
   const [typingUsers, setTypingUsers] = useState([]);
   const typingTimeoutRef = useRef(null);
+  const [currentEditors, setCurrentEditors] = useState([]); // 추가: 현재 편집 중인 사용자 목록
 
   // 자동 저장 설정
   const AUTO_SAVE_INTERVAL = 30000; // 30초
@@ -86,6 +87,13 @@ const Workspace = () => {
           fileId: currentFile,
           content: value,
           cursorPosition: editorRef.current?.getPosition()
+        });
+
+        // 파일 편집 상태 전송
+        const userName = localStorage.getItem('userName') || '익명';
+        socket.emit("joinFile", {
+          fileId: currentFile,
+          userName
         });
       }, 100);
   
@@ -364,6 +372,16 @@ const Workspace = () => {
       console.error("파일 데이터가 유효하지 않습니다:", file);
       return;
     }
+    
+    // 파일을 열 때 joinFile 이벤트 발생
+    if (socket) {
+      const userName = localStorage.getItem('userName') || '익명';
+      socket.emit("joinFile", {
+        fileId: file.id,
+        userName
+      });
+    }
+    
     fetchFileContent(file);
   };
 
@@ -1018,17 +1036,6 @@ const Workspace = () => {
         });
 
         socket.on("fileTreeUpdate", () => {
-          fetchFileTree();
-        });
-
-        socket.on("requestFileTree", () => {
-          fetchFileTree();
-        });
-
-        socket.on("userTyping", ({ fileId, users }) => {
-          if (fileId === currentFile) {
-            setTypingUsers(users);
-          }
         });
 
         setSocket(socket);
@@ -1057,13 +1064,9 @@ const Workspace = () => {
 
   return (
     <div className="workspace">
-      <div className="workspace-header">
-        <div className="active-users">
-          🟢 활성 사용자: {activeUsers}명
-        </div>
-      </div>
       <div className="sidebar">
         <div className="sidebar-header">
+        🟢 활성 사용자: {activeUsers}명
           <div className="search-box">
             <input
               type="text"
@@ -1125,6 +1128,18 @@ const Workspace = () => {
               </>
             ) : (
               <span className="welcome-text">파일을 선택하세요</span>
+            )}
+          </div>
+          <div className="current-editors">
+            {currentEditors.length > 0 && (
+              <span className="editors-list">
+                {currentEditors.map((editor, idx) => (
+                  <span key={idx} className="editor-name">
+                    {editor} 편집중
+                    {idx < currentEditors.length - 1 ? ', ' : ''}
+                  </span>
+                ))}
+              </span>
             )}
           </div>
           {currentFile && (

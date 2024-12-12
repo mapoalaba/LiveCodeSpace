@@ -221,3 +221,21 @@
 .typing-indicator span {
   margin-right: 8px;
 }
+
+.current-editors {
+  flex: 1;
+  text-align: center;
+  color: #cccccc;
+  font-size: 13px;
+}
+
+.editors-list {
+  background-color: rgba(60, 60, 60, 0.6);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.editor-name {
+  color: #00ff00;
+  margin: 0 4px;
+}
