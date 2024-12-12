@@ -44,6 +44,8 @@ const Workspace = () => {
   const [socket, setSocket] = useState(null);
   const [activeUsers, setActiveUsers] = useState(0);
   const debounceTimeout = useRef(null);
+  const [typingUsers, setTypingUsers] = useState([]);
+  const typingTimeoutRef = useRef(null);
 
   // 자동 저장 설정
   const AUTO_SAVE_INTERVAL = 30000; // 30초
@@ -68,26 +70,41 @@ const Workspace = () => {
     }
   };
 
-  // 파일 내용 변경 감지
-  const handleEditorChange = (value) => {
+  // 파일 내용 변경 감지 함수 수정
+  const handleEditorChange = useCallback((value) => {
     setFileContent(value);
     setHasUnsavedChanges(true);
-
+  
     if (debounceTimeout.current) {
       clearTimeout(debounceTimeout.current);
     }
-
-    // 현재 파일이 없거나 소켓이 없는 경우 중단
-    if (!socket || !currentFile) return;
-
-    debounceTimeout.current = setTimeout(() => {
-      sendWebSocketMessage('codeChange', {
-        projectId,
+  
+    // 실시간 코드 변경 전송
+    if (socket && currentFile) {
+      debounceTimeout.current = setTimeout(() => {
+        socket.emit("codeChange", {
+          fileId: currentFile,
+          content: value,
+          cursorPosition: editorRef.current?.getPosition()
+        });
+      }, 100);
+  
+      // 타이핑 상태 전송
+      const userName = localStorage.getItem('userName') || '익명';
+      socket.emit("typing", {
         fileId: currentFile,
-        content: value
+        userName: userName // 실제 사용자 이름 사용
       });
-    }, 500);
-  };
+  
+      // 타이핑 중지 타이머 설정
+      if (typingTimeoutRef.current) {
+        clearTimeout(typingTimeoutRef.current);
+      }
+      typingTimeoutRef.current = setTimeout(() => {
+        socket.emit("stopTyping", { fileId: currentFile });
+      }, 1000);
+    }
+  }, [socket, currentFile]);
 
   const fetchFileTree = useCallback(async (parentId = 'root') => {
     try {
@@ -407,11 +424,8 @@ const Workspace = () => {
         );
       }
 
-      if (socket) {
-        sendWebSocketMessage('folderCreate', { 
-          projectId, 
-          folder: createdItem 
-        });
+      if (socket && createdItem) {
+        socket.emit("folderCreate", { folder: createdItem });
       }
     } catch (error) {
       console.error("폴더 생성 중 오류:", error);
@@ -467,11 +481,8 @@ const Workspace = () => {
       setCurrentFile(createdFile.id);
       setFileContent("");  // 새 파일은 빈 내용으로 시작
 
-      if (socket) {
-        sendWebSocketMessage('fileCreate', { 
-          projectId, 
-          file: createdFile 
-        });
+      if (socket && createdFile) {
+        socket.emit("fileCreate", { file: createdFile });
       }
   
     } catch (error) {
@@ -535,10 +546,9 @@ const Workspace = () => {
       }
 
       if (socket) {
-        sendWebSocketMessage('itemDelete', { 
-          projectId, 
-          itemId: node.id, 
-          itemType: node.type 
+        socket.emit("itemDelete", {
+          itemId: node.id,
+          itemType: node.type
         });
       }
 
@@ -598,7 +608,7 @@ const Workspace = () => {
         const updateNode = (nodes) => {
           return nodes.map(n => {
             if (n.id === node.id) {
-              // 현재 노드 ���데이트
+              // 현재 노드 업데이트
               return {
                 ...n,
                 name: newName,
@@ -983,19 +993,10 @@ const Workspace = () => {
         const token = localStorage.getItem('token');
         if (!projectId || !token) return;
 
-        socket = io("http://localhost:5001", {
+        socket = io(process.env.REACT_APP_SOCKET_URL || 'http://localhost:5001', {
           path: "/socket",
-          transports: ['websocket', 'polling'],
           auth: { token },
-          query: { projectId },
-          reconnection: true,
-          reconnectionAttempts: 5,
-          reconnectionDelay: 1000,
-          autoConnect: true
-        });
-
-        socket.on("connect_error", (error) => {
-          console.log("[Socket.IO] Connection Error:", error);
+          query: { projectId }
         });
 
         socket.on("connect", () => {
@@ -1007,9 +1008,12 @@ const Workspace = () => {
           setActiveUsers(count);
         });
 
-        socket.on("codeUpdate", ({ fileId, content, senderId }) => {
+        socket.on("codeUpdate", ({ fileId, content, cursorPosition, senderId }) => {
           if (fileId === currentFile && senderId !== socket.id) {
             setFileContent(content);
+            if (cursorPosition && editorRef.current) {
+              editorRef.current.setPosition(cursorPosition);
+            }
           }
         });
 
@@ -1017,8 +1021,14 @@ const Workspace = () => {
           fetchFileTree();
         });
 
-        socket.on("disconnect", () => {
-          console.log("[Socket.IO] Disconnected");
+        socket.on("requestFileTree", () => {
+          fetchFileTree();
+        });
+
+        socket.on("userTyping", ({ fileId, users }) => {
+          if (fileId === currentFile) {
+            setTypingUsers(users);
+          }
         });
 
         setSocket(socket);
@@ -1034,7 +1044,7 @@ const Workspace = () => {
         socket.disconnect();
       }
     };
-  }, [projectId]);
+  }, [projectId, currentFile]);
 
   // 메시지 전송 함수 수정
   const sendSocketMessage = useCallback((eventName, data) => {
@@ -1141,29 +1151,43 @@ const Workspace = () => {
         {loading ? (
           <div className="loading">Loading...</div>
         ) : (
-          <Editor
-            height="calc(100vh - 40px)"
-            defaultLanguage="javascript"
-            value={fileContent}
-            theme="vs-dark"
-            options={{
-              fontSize: 14,
-              minimap: { enabled: true },
-              scrollBeyondLastLine: false,
-              wordWrap: 'on',
-              automaticLayout: true,
-              lineNumbers: 'on',
-              glyphMargin: true,
-              folding: true,
-              lineDecorationsWidth: 10,
-              formatOnPaste: true,
-              formatOnType: true
-            }}
-            onChange={handleEditorChange}
-            onMount={(editor) => {
-              editorRef.current = editor;
-            }}
-          />
+          <>
+            <div className="editor-content">
+              <Editor
+                height="calc(100vh - 40px)"
+                defaultLanguage="javascript"
+                value={fileContent}
+                theme="vs-dark"
+                options={{
+                  fontSize: 14,
+                  minimap: { enabled: true },
+                  scrollBeyondLastLine: false,
+                  wordWrap: 'on',
+                  automaticLayout: true,
+                  lineNumbers: 'on',
+                  glyphMargin: true,
+                  folding: true,
+                  lineDecorationsWidth: 10,
+                  formatOnPaste: true,
+                  formatOnType: true
+                }}
+                onChange={handleEditorChange}
+                onMount={(editor) => {
+                  editorRef.current = editor;
+                }}
+              />
+              {typingUsers.length > 0 && (
+                <div className="typing-indicator">
+                  {typingUsers.map((user, index) => (
+                    <span key={index}>
+                      {user} 타이핑 중
+                      {index < typingUsers.length - 1 ? ', ' : ''}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
         )}
       </div>
       {contextMenu && (

@@ -9,7 +9,8 @@ const Login = ({ onLogin }) => {
   const [error, setError] = useState("");
   const navigate = useNavigate();
 
-  const handleLogin = async () => {
+  const handleLogin = async (e) => {
+    e.preventDefault();
     try {
       const response = await fetch(`${process.env.REACT_APP_API_URL}/login`, {
         method: "POST",
@@ -20,6 +21,8 @@ const Login = ({ onLogin }) => {
       const data = await response.json();
       if (response.ok) {
         localStorage.setItem('isLoggedIn', 'true'); // 로그인 상태 저장
+        localStorage.setItem('token', data.token);
+        localStorage.setItem('userName', data.name); // 사용자 이름 저장
         onLogin(data.token); // App.js의 handleLogin 호출
         window.location.href = '/dashboard'; // navigate 대신 사용
       } else {
