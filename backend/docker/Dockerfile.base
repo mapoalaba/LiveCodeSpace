@@ -1,0 +1,18 @@
+# Dockerfile.base
+
+FROM node:latest
+
+# 기본 개발 도구 설치
+RUN apt-get update && apt-get install -y \
+    git \
+    curl \
+    vim \
+    && npm install -g \
+    create-react-app \
+    npm@latest
+
+# 작업 디렉토리 설정
+WORKDIR /app
+
+# 권한 설정
+RUN chmod -R 777 /app

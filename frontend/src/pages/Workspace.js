@@ -1,3 +1,237 @@
+require('dotenv').config();
+const express = require("express");
+const cors = require("cors");
+const http = require("http");
+const { Server } = require("socket.io");
+const bodyParser = require("body-parser");
+const authRoutes = require("./routes/authRoutes");
+const projectRoutes = require("./routes/projectRoutes");
+const fileSystemRouter = require('./routes/fileSystem');
+const terminalRoutes = require('./routes/terminalRoutes');
+const pty = require('node-pty');
+const os = require('os');
+const path = require('path');
+const ProjectSyncManager = require('./services/ProjectSyncManager');
+const Docker = require('dockerode');
+const AWS = require('aws-sdk');
+
+
+// AWS 서비스 초기화
+const s3 = new AWS.S3();
+const dynamoDB = new AWS.DynamoDB.DocumentClient();
+const docker = new Docker();
+
+// Express 앱 및 HTTP 서버 초기화
+const app = express();
+const server = http.createServer(app);
+
+// Socket.IO 설정
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:3000",
+    methods: ["GET", "POST", "PUT", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
+  },
+  path: "/socket",  // 소켓 경로 지정
+  transports: ['websocket', 'polling'],  // 전송 방식 명시
+  pingTimeout: 60000,  // 핑 타임아웃 증가
+  pingInterval: 25000,
+  allowEIO3: true     // Engine.IO 3 허용
+});
+
+// 터미널 명령어 핸들러
+const terminalCommands = {
+  async pwd(session, socket) {
+    socket.emit('terminal-output', '\r\n');
+    socket.emit('terminal-output', session.currentPath);
+    socket.emit('terminal-output', '\r\n\r\n');
+  },
+
+  async ls(session, socket, args) {
+    try {
+      const currentPrefix = session.currentPath.slice(1);
+      const normalizedPrefix = currentPrefix.endsWith('/') ? currentPrefix : `${currentPrefix}/`;
+
+      const params = {
+        Bucket: process.env.S3_BUCKET_NAME,
+        Prefix: normalizedPrefix,
+        Delimiter: '/'
+      };
+
+      const data = await s3.listObjectsV2(params).promise();
+      socket.emit('terminal-output', '\r\n');
+
+      // 폴더와 파일 목록 출력
+      if (data.CommonPrefixes) {
+        for (const prefix of data.CommonPrefixes) {
+          const folderName = prefix.Prefix.slice(normalizedPrefix.length).split('/')[0];
+          if (folderName) {
+            socket.emit('terminal-output', `\x1b[34m${folderName}/\x1b[0m  `);
+          }
+        }
+      }
+
+      if (data.Contents) {
+        for (const file of data.Contents) {
+          const fileName = file.Key.slice(normalizedPrefix.length).split('/')[0];
+          if (fileName && !fileName.endsWith('/')) {
+            socket.emit('terminal-output', `${fileName}  `);
+          }
+        }
+      }
+
+      socket.emit('terminal-output', '\r\n\r\n');
+    } catch (error) {
+      socket.emit('terminal-output', `Error: ${error.message}\r\n`);
+    }
+  }
+};
+
+// Docker 컨테이너 관리 클래스
+class ContainerManager {
+  constructor() {
+    this.containers = new Map();
+    this.terminals = new Map();
+  }
+
+  async getOrCreateContainer(projectId) {
+    console.log(`[Docker] Getting or creating container for project: ${projectId}`);
+    
+    let containerInfo = this.containers.get(projectId);
+    
+    if (!containerInfo) {
+      console.log(`[Docker] Creating new container for project: ${projectId}`);
+      
+      const container = await docker.createContainer({
+        Image: 'node:latest',
+        name: `project-${projectId}`,
+        Env: [`PROJECT_ID=${projectId}`],
+        Tty: true,
+        OpenStdin: true,
+        Cmd: ["/bin/bash"],
+        WorkingDir: `/app/${projectId}`,
+        HostConfig: {
+          Binds: [`/workspace/${projectId}:/app/${projectId}`],
+          Memory: 2 * 1024 * 1024 * 1024,
+          NanoCPUs: 2 * 1000000000,
+          PortBindings: {
+            '3000/tcp': [{ HostPort: '' }],
+            '3001/tcp': [{ HostPort: '' }]
+          }
+        }
+      });
+
+      await container.start();
+      
+      containerInfo = {
+        container,
+        sessions: new Map(),
+        lastActivity: Date.now(),
+        projectId
+      };
+      
+      this.containers.set(projectId, containerInfo);
+      await this.initializeDevEnvironment(container, projectId);
+    }
+
+    return containerInfo;
+  }
+
+  // 개발 환경 초기화
+  async initializeDevEnvironment(container, projectId) {
+    console.log(`[Docker] Initializing dev environment for project: ${projectId}`);
+    
+    const setupCommands = [
+      'npm config set prefix "/app/.npm-global"',
+      'export PATH="/app/.npm-global/bin:$PATH"',
+      'npm install -g nodemon ts-node typescript'
+    ];
+
+    for (const cmd of setupCommands) {
+      await this.executeCommand(container, cmd);
+    }
+  }
+
+  // 명령어 실행
+  async executeCommand(container, command) {
+    console.log(`[Docker] Executing command: ${command}`);
+    
+    const exec = await container.exec({
+      Cmd: ['/bin/bash', '-c', command],
+      AttachStdout: true,
+      AttachStderr: true
+    });
+    
+    return await exec.start();
+  }
+
+  // 터미널 세션 생성
+  async createTerminalSession(projectId, socketId) {
+    console.log(`[Docker] Creating terminal session for project: ${projectId}, socket: ${socketId}`);
+    
+    const containerInfo = await this.getOrCreateContainer(projectId);
+    
+    const exec = await containerInfo.container.exec({
+      Cmd: ['/bin/bash'],
+      AttachStdout: true,
+      AttachStderr: true,
+      AttachStdin: true,
+      Tty: true
+    });
+
+    const stream = await exec.start({
+      hijack: true,
+      stdin: true
+    });
+
+    containerInfo.terminals.set(socketId, {
+      stream,
+      exec,
+      lastActivity: Date.now()
+    });
+
+    return stream;
+  }
+
+  // 비활성 컨테이너 정리
+  async cleanup() {
+    console.log('[Docker] Starting container cleanup');
+    
+    const now = Date.now();
+    for (const [projectId, containerInfo] of this.containers) {
+      if (now - containerInfo.lastActivity > 30 * 60 * 1000) { // 30분 비활성
+        console.log(`[Docker] Cleaning up inactive container for project: ${projectId}`);
+        await containerInfo.container.stop();
+        await containerInfo.container.remove();
+        this.containers.delete(projectId);
+      }
+    }
+  }
+}
+
+
+// 에러나면 요 아래 부분 주석 -----------------------------------------
+
+// Socket.IO 설정
+const socketServer = require('./socket/socketServer');
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:3000",
+    methods: ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
+  },
+  path: "/socket",  // 소켓 경로 지정
+  transports: ['websocket', 'polling'],  // 전송 방식 명시
+  pingTimeout: 60000,  // 핑 타임아웃 증가
+  pingInterval: 25000,
+  allowEIO3: true     // Engine.IO 3 허용
+});
+
+// 에러 나면 요 위부분 주석 ------------------------------------------
+
+socketServer(io);  // Socket.IO 서버 초기화
 import React, { useState, useEffect, useCallback, useRef, terminalRef } from "react";
 import { useParams } from "react-router-dom";
 import { Editor } from "@monaco-editor/react";
@@ -20,15 +254,20 @@ import {
 } from '@mdi/js';
 import "../styles/Workspace.css";
 import { io } from "socket.io-client";
-
 import TerminalComponent from './TerminalComponent';
 import TerminalTabs from '../components/TerminalTabs';
 import TerminalControls from '../components/TerminalControls';
 import TerminalSearch from '../components/TerminalSearch';
 
+// 파일 최상단에 socketRef를 컴포넌트 외부에 선언
+let globalSocketRef = null;
 
+// 컴포넌트 최상단에 Refs 추가
 const Workspace = () => {
   const { projectId } = useParams();
+  const initPromiseRef = useRef(null);
+  const socketInitializedRef = useRef(false); // 초기화 여부 추적을 위한 새로운 ref
+
   const [fileTree, setFileTree] = useState([]);
   const [expandedFolders, setExpandedFolders] = useState(new Set());
   const [currentFolder, setCurrentFolder] = useState("");
@@ -135,7 +374,7 @@ const Workspace = () => {
       console.log(`Fetching file tree for project: ${projectId}, parentId: ${parentId}`);
   
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/${projectId}/items?parentId=${parentId === 'root' ? '' : parentId}`,
+        `http://13.125.78.134:5001/api/filesystem/${projectId}/items?parentId=${parentId === 'root' ? '' : parentId}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -220,7 +459,7 @@ const Workspace = () => {
   
         const token = localStorage.getItem("token");
         const response = await fetch(
-          `http://localhost:5001/api/filesystem/${projectId}/items?parentId=${folder.id}`,
+          `http://13.125.78.134:5001/api/filesystem/${projectId}/items?parentId=${folder.id}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -279,7 +518,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/items/${file.id}/content`,
+        `http://13.125.78.134:5001/api/filesystem/items/${file.id}/content`,
         {
           headers: { Authorization: `Bearer ${token}` }
         }
@@ -311,7 +550,7 @@ const Workspace = () => {
 
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/items/${currentFile}/content`,
+        `http://13.125.78.134:5001/api/filesystem/items/${currentFile}/content`,
         {
           method: "PUT",
           headers: {
@@ -382,6 +621,16 @@ const Workspace = () => {
       console.error("파일 데이터가 유효하지 않습니다:", file);
       return;
     }
+    
+    // 파일을 열 때 joinFile 이벤트 발생
+    if (socket) {
+      const userName = localStorage.getItem('userName') || '익명';
+      socket.emit("joinFile", {
+        fileId: file.id,
+        userName
+      });
+    }
+    
     fetchFileContent(file);
   };
 
@@ -392,7 +641,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/${projectId}/items`,
+        `http://13.125.78.134:5001/api/filesystem/${projectId}/items`,
         {
           method: "POST",
           headers: {
@@ -458,7 +707,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/${projectId}/items`,
+        `http://13.125.78.134:5001/api/filesystem/${projectId}/items`,
         {
           method: "POST",
           headers: {
@@ -514,7 +763,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/items/${node.id}`,
+        `http://13.125.78.134:5001/api/filesystem/items/${node.id}`,
         {
           method: "DELETE",
           headers: {
@@ -603,7 +852,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/items/${node.id}/rename`,
+        `http://13.125.78.134:5001/api/filesystem/items/${node.id}/rename`,
         {
           method: "PUT",
           headers: {
@@ -805,7 +1054,7 @@ const Workspace = () => {
 
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/items/${draggedData.id}/move`,
+        `http://13.125.78.134:5001/api/filesystem/items/${draggedData.id}/move`,
         {
           method: "PUT",
           headers: {
@@ -851,7 +1100,7 @@ const Workspace = () => {
       const token = localStorage.getItem("token");
       
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/items/${draggedData.id}/move`,
+        `http://13.125.78.134:5001/api/filesystem/items/${draggedData.id}/move`,
         {
           method: "PUT",
           headers: {
@@ -887,7 +1136,7 @@ const Workspace = () => {
     try {
       const token = localStorage.getItem("token");
       const response = await fetch(
-        `http://localhost:5001/api/filesystem/${projectId}/search?query=${encodeURIComponent(query)}`,
+        `http://13.125.78.134:5001/api/filesystem/${projectId}/search?query=${encodeURIComponent(query)}`,
         {
           headers: {
             Authorization: `Bearer ${token}`,
@@ -971,9 +1220,6 @@ const Workspace = () => {
       case 'bat':
         return <Icon path={mdiConsole} size={1} />;
       case 'properties':
-        return <Icon path={mdiCog} size={1} />;
-      case 'kts':
-        return <Icon path={mdiLanguageKotlin} size={1} />;
       default:
         return <Icon path={mdiFile} size={1} />;
     }
@@ -1134,6 +1380,96 @@ const handlePositionChange = () => {
         });
 
         socket.on("fileTreeUpdate", () => {
+        });
+
+        socket.on("fileCreated", ({ file }) => {
+          setFileTree(prevTree => {
+            const newTree = [...prevTree];
+            if (file.parentId) {
+              // 특정 폴더 내 생성
+              return newTree.map(node => {
+                if (node.id === file.parentId) {
+                  return {
+                    ...node,
+                    children: [...(node.children || []), file]
+                  };
+                }
+                if (node.type === 'folder' && node.children) {
+                  return {
+                    ...node,
+                    children: updateTreeNode(node.children, file.parentId, 
+                      [...(findNodeById(node.children, file.parentId)?.children || []), file])
+                  };
+                }
+                return node;
+              });
+            } else {
+              // 루트에 생성
+              return [...newTree, file];
+            }
+          });
+        });
+  
+        socket.on("folderCreated", ({ folder }) => {
+          setFileTree(prevTree => {
+            const newTree = [...prevTree];
+            if (folder.parentId) {
+              // 특정 폴더 내 생성
+              return newTree.map(node => {
+                if (node.id === folder.parentId) {
+                  return {
+                    ...node,
+                    children: [...(node.children || []), folder]
+                  };
+                }
+                if (node.type === 'folder' && node.children) {
+                  return {
+                    ...node,
+                    children: updateTreeNode(node.children, folder.parentId, 
+                      [...(findNodeById(node.children, folder.parentId)?.children || []), folder])
+                  };
+                }
+                return node;
+              });
+            } else {
+              // 루트에 생성
+              return [...newTree, folder];
+            }
+          });
+        });
+  
+        socket.on("itemRenamed", ({ itemId, newName, newPath }) => {
+          setFileTree(prevTree => {
+            const updateNodeRecursive = (nodes) => {
+              return nodes.map(node => {
+                if (node.id === itemId) {
+                  return { ...node, name: newName, path: newPath };
+                }
+                if (node.children) {
+                  return { ...node, children: updateNodeRecursive(node.children) };
+                }
+                return node;
+              });
+            };
+            return updateNodeRecursive(prevTree);
+          });
+        });
+  
+        socket.on("itemDeleted", ({ itemId }) => {
+          setFileTree(prevTree => {
+            const deleteNodeRecursive = (nodes) => {
+              return nodes.filter(node => {
+                if (node.id === itemId) {
+                  return false;
+                }
+                if (node.children) {
+                  node.children = deleteNodeRecursive(node.children);
+                }
+                return true;
+              });
+            };
+            return deleteNodeRecursive(prevTree);
+          });
         });
 
         setSocket(socket);
@@ -1359,6 +1695,47 @@ const handlePositionChange = () => {
             <Icon path={mdiMagnify} size={0.8} />
           </button>
         </div>
+        {loading ? (
+          <div className="loading">Loading...</div>
+        ) : (
+          <>
+            <div className="editor-content">
+              <Editor
+                height="calc(100vh - 40px)"
+                defaultLanguage="javascript"
+                value={fileContent}
+                theme="vs-dark"
+                options={{
+                  fontSize: 14,
+                  minimap: { enabled: true },
+                  scrollBeyondLastLine: false,
+                  wordWrap: 'on',
+                  automaticLayout: true,
+                  lineNumbers: 'on',
+                  glyphMargin: true,
+                  folding: true,
+                  lineDecorationsWidth: 10,
+                  formatOnPaste: true,
+                  formatOnType: true
+                }}
+                onChange={handleEditorChange}
+                onMount={(editor) => {
+                  editorRef.current = editor;
+                }}
+              />
+              {typingUsers.length > 0 && (
+                <div className="typing-indicator">
+                  {typingUsers.map((user, index) => (
+                    <span key={index}>
+                      {user} 타이핑 중
+                      {index < typingUsers.length - 1 ? ', ' : ''}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
       </div>
 
       {/* Search Bar */}
@@ -1432,3 +1809,204 @@ const handlePositionChange = () => {
 };
 
 export default Workspace;
+// ===== 미들웨어 설정 =====
+app.use(cors()); // CORS 활성화
+app.use(bodyParser.json()); // JSON 요청 파싱
+app.use(bodyParser.urlencoded({ extended: true })); // URL-encoded 요청 파싱
+
+// 요청 로깅 미들웨어
+app.use((req, res, next) => {
+  console.log(`[HTTP] ${req.method} ${req.path}`);
+  next();
+});
+
+// 라우트 설정
+app.get("/", (req, res) => {
+  res.send("LiveCodeSpace Backend API is running.");
+});
+
+app.use("/api/auth", authRoutes);
+app.use("/api/projects", projectRoutes);
+app.use('/api/filesystem', fileSystemRouter);
+app.use('/api/terminal', terminalRoutes);
+
+
+// // 터미널 세션 저장소
+// const terminals = new Map();
+
+// // Socket.IO 이벤트 처리
+// io.on("connection", (socket) => {
+//   console.log(`Client connected: ${socket.id}`);
+
+//   // 프로젝트 방에 참여
+//   socket.on("joinProject", (projectId) => {
+//     socket.join(projectId);
+//     console.log(`[Socket.IO] User ${socket.id} joined project room: ${projectId}`);
+//   });
+
+//   // 코드 변경 이벤트 처리
+//   socket.on("codeChange", ({ projectId, code }) => {
+//     console.log(`[Socket.IO] Code update for project ${projectId}:`, code);
+//     // 프로젝트 방에 있는 다른 사용자들에게 코드 업데이트 브로드캐스트
+//     socket.broadcast.to(projectId).emit("codeUpdate", { code });
+//   });
+
+//   // 터미널 세션 생성
+//   socket.on('join-terminal', async ({ projectId }) => {
+//     try {
+//       console.log(`Creating terminal for project: ${projectId}`);
+      
+//       // 기존 세션이 있다면 정리
+//       if (terminals.has(socket.id)) {
+//         const existingSession = terminals.get(socket.id);
+//         if (existingSession.term) {
+//           existingSession.term.kill();
+//         }
+//         terminals.delete(socket.id);
+//       }
+
+//       // 새 터미널 세션 생성
+//       let session = {
+//         projectId,
+//         currentPath: `/${projectId}`,
+//         currentCommand: '',
+//         lastActivity: Date.now()
+//       };
+      
+//       terminals.set(socket.id, session);
+//       console.log(`Terminal session created for socket ${socket.id}`);
+
+//       // 초기 프롬프트 전송
+//       socket.emit('terminal-output', `${session.currentPath} $ `);
+      
+//       socket.join(`terminal-${projectId}`);
+//     } catch (error) {
+//       console.error('Terminal creation error:', error);
+//       socket.emit('terminal-error', { error: error.message });
+//     }
+//   });
+
+//   // 터미널 입력 처리
+//   socket.on('terminal-input', async ({ projectId, data }) => {
+//     try {
+//       let session = terminals.get(socket.id);
+//       if (!session) {
+//         session = {
+//           projectId,
+//           currentPath: `/${projectId}`,
+//           currentCommand: '',
+//           lastActivity: Date.now()
+//         };
+//         terminals.set(socket.id, session);
+//       }
+  
+//       session.lastActivity = Date.now();
+  
+//       if (data === '\r' || data === '\n') {
+//         const commandLine = session.currentCommand.trim();
+//         const [command, ...args] = commandLine.split(' ');
+  
+//         if (command && commands[command]) {
+//           await commands[command](session, socket, args);
+//         } else if (command) {
+//           socket.emit('terminal-output', '\r\nCommand not found. Type "help" for available commands\r\n\r\n');
+//         }
+  
+//         session.currentCommand = '';
+//         socket.emit('terminal-output', `${session.currentPath}$ `);
+//       } else if (data === '\b' || data === '\x7f') {
+//         if (session.currentCommand.length > 0) {
+//           session.currentCommand = session.currentCommand.slice(0, -1);
+//           socket.emit('terminal-output', '\b \b');
+//         }
+//       } else {
+//         session.currentCommand += data;
+//         socket.emit('terminal-output', data);
+//       }
+//     } catch (error) {
+//       console.error('Terminal input error:', error);
+//       socket.emit('terminal-error', { error: error.message });
+//     }
+//   });
+  
+//   // 디버깅을 위한 추가 이벤트 리스너
+//   socket.on('error', (error) => {
+//     console.error('Socket error:', error);
+//   });
+  
+//   socket.on('disconnect', () => {
+//     console.log('Client disconnected:', socket.id);
+//     const session = terminals.get(socket.id);
+//     if (session) {
+//       terminals.delete(socket.id);
+//     }
+//   });
+
+//   // 터미널 크기 조정
+//   socket.on('terminal-resize', ({ cols, rows }) => {
+//     try {
+//       const session = terminals.get(socket.id);
+//       if (session && session.term) {
+//         session.term.resize(cols, rows);
+//       }
+//     } catch (error) {
+//       console.error('Terminal resize error:', error);
+//     }
+//   });
+
+//   // 연결 해제 처리
+//   socket.on("disconnect", () => {
+//     try {
+//       console.log(`Client disconnected: ${socket.id}`);
+//       const session = terminals.get(socket.id);
+//       if (session) {
+//         terminals.delete(socket.id);
+//       }
+//     } catch (error) {
+//       console.error('Disconnect cleanup error:', error);
+//     }
+//   });
+// });
+
+// // 비활성 터미널 정리
+// setInterval(() => {
+//   const now = Date.now();
+//   for (const [socketId, session] of terminals.entries()) {
+//     if (now - session.lastActivity > 1000 * 60 * 30) { // 30분 비활성
+//       try {
+//         session.term.kill();
+//         terminals.delete(socketId);
+//         console.log(`Inactive terminal ${socketId} cleaned up`);
+//       } catch (error) {
+//         console.error('Terminal cleanup error:', error);
+//       }
+//     }
+//   }
+// }, 1000 * 60 * 5); // 5분마다 체크
+
+// 주기적인 정리 작업 설정
+setInterval(() => {
+  containerManager.cleanup();
+  // 오래된 캐시 정리
+  ProjectSyncManager.cleanup();
+}, 1000 * 60 * 30); // 30분마다
+
+// 에러 핸들링
+app.use((req, res, next) => {
+  console.warn(`[HTTP] 404 - Route not found: ${req.method} ${req.path}`);
+  res.status(404).json({ error: "Not Found" });
+});
+
+app.use((err, req, res, next) => {
+  console.error(`[HTTP] 500 - Server error:`, err);
+  res.status(500).json({ error: "An unexpected error occurred." });
+});
+
+// 서버 시작
+const PORT = process.env.PORT || 5001;
+server.listen(PORT, () => {
+  console.log(`[Server] Running on port ${PORT}`);
+  console.log('[Server] Socket.IO initialized');
+  console.log('[Server] Docker service ready');
+  console.log('[Server] Waiting for client connections...');
+});

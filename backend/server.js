@@ -1,4 +1,3 @@
-// server.js
 require('dotenv').config();
 const express = require("express");
 const cors = require("cors");
@@ -11,16 +10,37 @@ const fileSystemRouter = require('./routes/fileSystem');
 const terminalRoutes = require('./routes/terminalRoutes');
 const pty = require('node-pty');
 const os = require('os');
-const path = require('path');
+const ProjectSyncManager = require('./services/ProjectSyncManager');
+const Docker = require('dockerode');
 const AWS = require('aws-sdk');
+const path = require('path');
+
+// AWS 서비스 초기화
 const s3 = new AWS.S3();
 const dynamoDB = new AWS.DynamoDB.DocumentClient();
+const docker = new Docker();
 
+// Express 앱 및 HTTP 서버 초기화
 const app = express();
 const server = http.createServer(app);
 
+// Socket.IO 설정
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:3000",
+    methods: ["GET", "POST", "PUT", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
+  },
+  path: "/socket",  // 소켓 경로 지정
+  transports: ['websocket', 'polling'],  // 전송 방식 명시
+  pingTimeout: 60000,  // 핑 타임아웃 증가
+  pingInterval: 25000,
+  allowEIO3: true     // Engine.IO 3 허용
+});
+
 // 터미널 명령어 핸들러
-const commands = {
+const terminalCommands = {
   async pwd(session, socket) {
     socket.emit('terminal-output', '\r\n');
     socket.emit('terminal-output', session.currentPath);
@@ -29,8 +49,7 @@ const commands = {
 
   async ls(session, socket, args) {
     try {
-      // 현재 경로에서 마지막 슬래시 확인하고 정규화
-      const currentPrefix = session.currentPath.slice(1);  // 앞의 '/' 제거
+      const currentPrefix = session.currentPath.slice(1);
       const normalizedPrefix = currentPrefix.endsWith('/') ? currentPrefix : `${currentPrefix}/`;
 
       const params = {
@@ -42,115 +61,155 @@ const commands = {
       const data = await s3.listObjectsV2(params).promise();
       socket.emit('terminal-output', '\r\n');
 
-      let hasContent = false;
-
-      // 폴더 목록 (CommonPrefixes)
-      if (data.CommonPrefixes && data.CommonPrefixes.length > 0) {
+      // 폴더와 파일 목록 출력
+      if (data.CommonPrefixes) {
         for (const prefix of data.CommonPrefixes) {
-          // 현재 경로의 직계 하위 폴더만 표시
           const folderName = prefix.Prefix.slice(normalizedPrefix.length).split('/')[0];
           if (folderName) {
             socket.emit('terminal-output', `\x1b[34m${folderName}/\x1b[0m  `);
-            hasContent = true;
           }
         }
       }
 
-      // 파일 목록 (Contents)
       if (data.Contents) {
-        for (const content of data.Contents) {
-          // 현재 폴더의 파일만 표시 (하위 폴더 내용 제외)
-          const relativePath = content.Key.slice(normalizedPrefix.length);
-          const fileName = relativePath.split('/')[0];
-          if (fileName && !content.Key.endsWith('/')) {
+        for (const file of data.Contents) {
+          const fileName = file.Key.slice(normalizedPrefix.length).split('/')[0];
+          if (fileName && !fileName.endsWith('/')) {
             socket.emit('terminal-output', `${fileName}  `);
-            hasContent = true;
           }
         }
       }
 
-      // 내용이 없을 경우 메시지 표시
-      if (!hasContent) {
-        socket.emit('terminal-output', 'Empty directory');
-      }
-
       socket.emit('terminal-output', '\r\n\r\n');
     } catch (error) {
-      socket.emit('terminal-output', `\r\nError: ${error.message}\r\n\r\n`);
-    }
-  },
-
-  async cd(session, socket, args) {
-    try {
-      socket.emit('terminal-output', '\r\n'); // 명령어 입력 후 줄바꿈
-
-      if (!args[0] || args[0] === '/') {
-        session.currentPath = `/${session.projectId}`;
-        socket.emit('terminal-output', '\r\n');
-        return;
-      }
-
-      let newPath;
-      if (args[0].startsWith('/')) {
-        newPath = args[0];
-      } else if (args[0] === '..') {
-        const parts = session.currentPath.split('/').filter(Boolean);
-        parts.pop();
-        newPath = '/' + parts.join('/');
-      } else {
-        newPath = `${session.currentPath}/${args[0]}`.replace(/\/+/g, '/');
-      }
-
-      // S3에서 경로 확인
-      const prefix = newPath.slice(1);
-      const params = {
-        Bucket: process.env.S3_BUCKET_NAME,
-        Prefix: prefix,
-        Delimiter: '/',
-        MaxKeys: 1
-      };
-
-      const data = await s3.listObjectsV2(params).promise();
-      
-      if (data.CommonPrefixes.length > 0 || data.Contents.length > 0) {
-        session.currentPath = newPath;
-        socket.emit('terminal-output', '\r\n');
-      } else {
-        socket.emit('terminal-output', 'Directory not found\r\n\r\n');
-      }
-    } catch (error) {
-      socket.emit('terminal-output', `Error: ${error.message}\r\n\r\n`);
-    }
-  },
-
-  async cat(session, socket, args) {
-    try {
-      socket.emit('terminal-output', '\r\n'); // 명령어 입력 후 줄바꿈
-
-      if (!args[0]) {
-        socket.emit('terminal-output', 'Usage: cat <filename>\r\n\r\n');
-        return;
-      }
-
-      const filePath = args[0].startsWith('/')
-        ? args[0].slice(1)
-        : `${session.currentPath.slice(1)}/${args[0]}`;
-
-      const params = {
-        Bucket: process.env.S3_BUCKET_NAME,
-        Key: filePath
-      };
-
-      const data = await s3.getObject(params).promise();
-      socket.emit('terminal-output', data.Body.toString('utf-8'));
-      socket.emit('terminal-output', '\r\n\r\n');
-    } catch (error) {
-      socket.emit('terminal-output', `Error: ${error.message}\r\n\r\n`);
+      socket.emit('terminal-output', `Error: ${error.message}\r\n`);
     }
   }
 };
 
+// Docker 컨테이너 관리 클래스
+class ContainerManager {
+  constructor() {
+    this.containers = new Map();
+    this.terminals = new Map();
+  }
 
+  async getOrCreateContainer(projectId) {
+    console.log(`[Docker] Getting or creating container for project: ${projectId}`);
+    
+    let containerInfo = this.containers.get(projectId);
+    
+    if (!containerInfo) {
+      console.log(`[Docker] Creating new container for project: ${projectId}`);
+      
+      const container = await docker.createContainer({
+        Image: 'node:latest',
+        name: `project-${projectId}`,
+        Env: [`PROJECT_ID=${projectId}`],
+        Tty: true,
+        OpenStdin: true,
+        Cmd: ["/bin/bash"],
+        WorkingDir: `/app/${projectId}`,
+        HostConfig: {
+          Binds: [`/workspace/${projectId}:/app/${projectId}`],
+          Memory: 2 * 1024 * 1024 * 1024,
+          NanoCPUs: 2 * 1000000000,
+          PortBindings: {
+            '3000/tcp': [{ HostPort: '' }],
+            '3001/tcp': [{ HostPort: '' }]
+          }
+        }
+      });
+
+      await container.start();
+      
+      containerInfo = {
+        container,
+        sessions: new Map(),
+        lastActivity: Date.now(),
+        projectId
+      };
+      
+      this.containers.set(projectId, containerInfo);
+      await this.initializeDevEnvironment(container, projectId);
+    }
+
+    return containerInfo;
+  }
+
+  // 개발 환경 초기화
+  async initializeDevEnvironment(container, projectId) {
+    console.log(`[Docker] Initializing dev environment for project: ${projectId}`);
+    
+    const setupCommands = [
+      'npm config set prefix "/app/.npm-global"',
+      'export PATH="/app/.npm-global/bin:$PATH"',
+      'npm install -g nodemon ts-node typescript'
+    ];
+
+    for (const cmd of setupCommands) {
+      await this.executeCommand(container, cmd);
+    }
+  }
+
+  // 명령어 실행
+  async executeCommand(container, command) {
+    console.log(`[Docker] Executing command: ${command}`);
+    
+    const exec = await container.exec({
+      Cmd: ['/bin/bash', '-c', command],
+      AttachStdout: true,
+      AttachStderr: true
+    });
+    
+    return await exec.start();
+  }
+
+  // 터미널 세션 생성
+  async createTerminalSession(projectId, socketId) {
+    console.log(`[Docker] Creating terminal session for project: ${projectId}, socket: ${socketId}`);
+    
+    const containerInfo = await this.getOrCreateContainer(projectId);
+    
+    const exec = await containerInfo.container.exec({
+      Cmd: ['/bin/bash'],
+      AttachStdout: true,
+      AttachStderr: true,
+      AttachStdin: true,
+      Tty: true
+    });
+
+    const stream = await exec.start({
+      hijack: true,
+      stdin: true
+    });
+
+    containerInfo.terminals.set(socketId, {
+      stream,
+      exec,
+      lastActivity: Date.now()
+    });
+
+    return stream;
+  }
+
+  // 비활성 컨테이너 정리
+  async cleanup() {
+    console.log('[Docker] Starting container cleanup');
+    
+    const now = Date.now();
+    for (const [projectId, containerInfo] of this.containers) {
+      if (now - containerInfo.lastActivity > 30 * 60 * 1000) { // 30분 비활성
+        console.log(`[Docker] Cleaning up inactive container for project: ${projectId}`);
+        await containerInfo.container.stop();
+        await containerInfo.container.remove();
+        this.containers.delete(projectId);
+      }
+    }
+  }
+}
+
+// 에러 나면 이부분 -----------------------------------------------------------
 
 // Socket.IO 설정
 const socketServer = require('./socket/socketServer');
@@ -168,6 +227,8 @@ const io = new Server(server, {
   allowEIO3: true     // Engine.IO 3 허용
 });
 
+// 에러 나면 이부분 -----------------------------------------------------------
+
 socketServer(io);  // Socket.IO 서버 초기화
 
 // ===== 미들웨어 설정 =====
@@ -175,21 +236,17 @@ app.use(cors()); // CORS 활성화
 app.use(bodyParser.json()); // JSON 요청 파싱
 app.use(bodyParser.urlencoded({ extended: true })); // URL-encoded 요청 파싱
 
-// 요청 로깅
+// 요청 로깅 미들웨어
 app.use((req, res, next) => {
-  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  console.log(`[HTTP] ${req.method} ${req.path}`);
   next();
 });
 
-// ===== 기본 라우트 =====
+// 라우트 설정
 app.get("/", (req, res) => {
   res.send("LiveCodeSpace Backend API is running.");
 });
 
-// API 라우트 등록
-app.use(express.json());
-
-// ===== 라우트 등록 =====
 app.use("/api/auth", authRoutes);
 app.use("/api/projects", projectRoutes);
 app.use('/api/filesystem', fileSystemRouter);
@@ -349,25 +406,29 @@ app.use('/api/terminal', terminalRoutes);
 //   }
 // }, 1000 * 60 * 5); // 5분마다 체크
 
-// ===== 에러 핸들링 =====
-// 404 핸들러
+// 주기적인 정리 작업 설정
+setInterval(() => {
+  containerManager.cleanup();
+  // 오래된 캐시 정리
+  ProjectSyncManager.cleanup();
+}, 1000 * 60 * 30); // 30분마다
+
+// 에러 핸들링
 app.use((req, res, next) => {
-  console.warn(`[404] Route not found: ${req.method} ${req.path}`);
+  console.warn(`[HTTP] 404 - Route not found: ${req.method} ${req.path}`);
   res.status(404).json({ error: "Not Found" });
 });
 
-// 일반 에러 핸들러
 app.use((err, req, res, next) => {
-  console.error(`[500] Unhandled error: ${err.message}`);
+  console.error(`[HTTP] 500 - Server error:`, err);
   res.status(500).json({ error: "An unexpected error occurred." });
 });
-
 
 // 서버 시작
 const PORT = process.env.PORT || 5001;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
-  console.log('Socket.io server initialized');
-  console.log('Terminal service ready');
-  console.log('Waiting for client connections...');
+  console.log(`[Server] Running on port ${PORT}`);
+  console.log('[Server] Socket.IO initialized');
+  console.log('[Server] Docker service ready');
+  console.log('[Server] Waiting for client connections...');
 });

@@ -1,0 +1,42 @@
+/* frontend/src/styles/CollaborativeEditor.css */
+
+.monaco-editor .cursor {
+  transition: all 0.1s ease;
+}
+
+/* 사용자별 커서 색상 */
+.cursor-user1 {
+  background-color: #ff0000 !important;
+}
+
+.cursor-user2 {
+  background-color: #00ff00 !important;
+}
+
+.cursor-user3 {
+  background-color: #0000ff !important;
+}
+
+/* 사용자별 선택 영역 색상 */
+.selection-user1 {
+  background-color: rgba(255, 0, 0, 0.2) !important;
+}
+
+.selection-user2 {
+  background-color: rgba(0, 255, 0, 0.2) !important;
+}
+
+.selection-user3 {
+  background-color: rgba(0, 0, 255, 0.2) !important;
+}
+
+/* 사용자 이름 표시 */
+.cursor-label {
+  position: absolute;
+  padding: 2px 4px;
+  font-size: 12px;
+  color: white;
+  border-radius: 2px;
+  pointer-events: none;
+  z-index: 100;
+}

@@ -60,65 +60,70 @@ exports.register = (req, res) => {
 };
 
 // 로그인 API 수정
-exports.login = (req, res) => {
-  const { email, password } = req.body;
+exports.login = async (req, res) => {
+  try {
+    const { email, password } = req.body;
 
-  const authenticationDetails = new AmazonCognitoIdentity.AuthenticationDetails({
-    Username: email,
-    Password: password,
-  });
+    const authenticationDetails = new AmazonCognitoIdentity.AuthenticationDetails({
+      Username: email,
+      Password: password,
+    });
 
-  const userData = { Username: email, Pool: userPool };
-  const cognitoUser = new AmazonCognitoIdentity.CognitoUser(userData);
+    const userData = { Username: email, Pool: userPool };
+    const cognitoUser = new AmazonCognitoIdentity.CognitoUser(userData);
 
-  cognitoUser.authenticateUser(authenticationDetails, {
-    onSuccess: async (result) => {
-      const idToken = result.idToken.jwtToken;
-      
-      // Users 테이블에서 이메일로 사용자 조회
-      const userParams = {
-        TableName: "Users",
-        FilterExpression: "email = :email",
-        ExpressionAttributeValues: {
-          ":email": email
-        }
-      };
-
-      try {
-        const userResult = await dynamoDB.send(new ScanCommand(userParams));
-        const user = userResult.Items?.[0];
+    cognitoUser.authenticateUser(authenticationDetails, {
+      onSuccess: async (result) => {
+        const idToken = result.idToken.jwtToken;
         
-        if (!user) {
-          return res.status(404).json({ error: "User not found in database" });
-        }
-
-        // 실제 DynamoDB의 userId 사용
-        const userId = user.userId;
-        
-        console.log("로그인 성공:", { email, userId });
-
-        // 마지막 로그인 시간 업데이트
-        const updateParams = {
+        // Users 테이블에서 이메일로 사용자 조회
+        const userParams = {
           TableName: "Users",
-          Key: { userId },
-          UpdateExpression: "set lastLogin = :lastLogin",
+          FilterExpression: "email = :email",
           ExpressionAttributeValues: {
-            ":lastLogin": new Date().toISOString(),
-          },
+            ":email": email
+          }
         };
 
-        await dynamoDB.send(new UpdateCommand(updateParams));
-        res.json({ token: idToken, userId });
-      } catch (err) {
-        console.error("DynamoDB error:", err);
-        res.status(500).json({ error: "Failed to update user login data." });
-      }
-    },
-    onFailure: (err) => {
-      console.error("Cognito login error:", err.message);
-      res.status(401).json({ error: err.message });
-    },
-  });
+        try {
+          const userResult = await dynamoDB.send(new ScanCommand(userParams));
+          const user = userResult.Items?.[0];
+          
+          if (!user) {
+            return res.status(404).json({ error: "User not found in database" });
+          }
+
+          // 실제 DynamoDB의 userId 사용
+          const userId = user.userId;
+          
+          console.log("로그인 성공:", { email, userId });
+
+          // 마지막 로그인 시간 업데이트
+          const updateParams = {
+            TableName: "Users",
+            Key: { userId },
+            UpdateExpression: "set lastLogin = :lastLogin",
+            ExpressionAttributeValues: {
+              ":lastLogin": new Date().toISOString(),
+            },
+          };
+
+          await dynamoDB.send(new UpdateCommand(updateParams));
+          res.json({ token: idToken, userId, name: user.name, message: "로그인 성공" });
+        } catch (err) {
+          console.error("DynamoDB error:", err);
+          res.status(500).json({ error: "Failed to update user login data." });
+        }
+      },
+      onFailure: (err) => {
+        console.error("Cognito login error:", err.message);
+        res.status(401).json({ error: err.message });
+      },
+    });
+  } catch (error) {
+    console.error("로그인 처리 중 오류 발생:", error);
+    res.status(500).json({ error: "로그인 처리 중 오류가 발생했습니다." });
+  }
 };
 
 // 이메일 확인 API
