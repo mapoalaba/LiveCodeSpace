@@ -67,28 +67,56 @@ module.exports = (io) => {
       });
     });
 
-    // 파일 생성
+    // 파일 생성 이벤트 처리 수정
     socket.on("fileCreate", ({ file }) => {
       if (!socket.currentProject) return;
-      socket.to(socket.currentProject).emit("fileCreated", { file });
-      io.to(socket.currentProject).emit("fileTreeUpdate");
+      
+      // 모든 클라이언트에게 파일 생성 알림
+      io.to(socket.currentProject).emit("fileCreated", { 
+        file: {
+          ...file,
+          children: [] // 새 파일은 빈 children 배열로 초기화
+        }
+      });
     });
 
-    // 폴더 생성
+    // 폴더 생성 이벤트 처리 수정
     socket.on("folderCreate", ({ folder }) => {
       if (!socket.currentProject) return;
-      socket.to(socket.currentProject).emit("folderCreated", { folder });
-      io.to(socket.currentProject).emit("fileTreeUpdate");
+      
+      // 모든 클라이언트에게 폴더 생성 알림
+      io.to(socket.currentProject).emit("folderCreated", { 
+        folder: {
+          ...folder,
+          children: [] // 새 폴더는 빈 children 배열로 초기화
+        }
+      });
     });
 
-    // 파일/폴더 삭제
+    // 이름 변경 이벤트 처리 수정
+    socket.on("itemRename", ({ itemId, newName, newPath }) => {
+      if (!socket.currentProject) return;
+      
+      // 모든 클라이언트에게 이름 변경 알림
+      io.to(socket.currentProject).emit("itemRenamed", { 
+        itemId, 
+        newName,
+        newPath 
+      });
+    });
+
+    // 삭제 이벤트 처리 수정
     socket.on("itemDelete", ({ itemId, itemType }) => {
       if (!socket.currentProject) return;
-      socket.to(socket.currentProject).emit("itemDeleted", { itemId, itemType });
-      io.to(socket.currentProject).emit("fileTreeUpdate");
+      
+      // 모든 클라이언트에게 삭제 알림
+      io.to(socket.currentProject).emit("itemDeleted", { 
+        itemId,
+        itemType
+      });
     });
 
-    // 타이핑 상태 이벤트 처리 수정
+    // 타이핑 상태 이벤트 처�� 수정
     socket.on("typing", ({ fileId, userName }) => {
       if (!socket.currentProject) return;
       
