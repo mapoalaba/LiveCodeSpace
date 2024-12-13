@@ -80,28 +80,29 @@ module.exports = (io) => {
       });
     });
 
-    // 폴더 생성 이벤트 처리 수정
+    // folderCreate 이벤트 핸들러 수정
     socket.on("folderCreate", ({ folder }) => {
       if (!socket.currentProject) return;
       
-      // 모든 클라이언트에게 폴더 생성 알림
-      io.to(socket.currentProject).emit("folderCreated", { 
+      // 생성된 폴더 정보를 프로젝트의 모든 클라이언트에게 전송
+      io.to(socket.currentProject).emit("folderCreated", {
         folder: {
           ...folder,
-          children: [] // 새 폴더는 빈 children 배열로 초기화
+          children: []
         }
       });
     });
 
     // 이름 변경 이벤트 처리 수정
-    socket.on("itemRename", ({ itemId, newName, newPath }) => {
+    socket.on("itemRename", ({ itemId, newName, newPath, parentId }) => {
       if (!socket.currentProject) return;
       
       // 모든 클라이언트에게 이름 변경 알림
       io.to(socket.currentProject).emit("itemRenamed", { 
         itemId, 
         newName,
-        newPath 
+        newPath,
+        parentId
       });
     });
 
@@ -116,7 +117,7 @@ module.exports = (io) => {
       });
     });
 
-    // 타이핑 상태 이벤트 처�� 수정
+    // 타이핑 상태 이벤트 처리 수정
     socket.on("typing", ({ fileId, userName }) => {
       if (!socket.currentProject) return;
       
@@ -170,6 +171,23 @@ module.exports = (io) => {
         editors.delete(userName);
         updateFileEditors(fileId, socket.currentProject);
       }
+    });
+
+    // itemMove 이벤트 핸들러 수정
+    socket.on("itemMove", ({ itemId, newParentId, draggedNode, targetNode, expandedFolders, updateTree }) => {
+      if (!socket.currentProject) return;
+
+      console.log("Item Move Event:", { itemId, newParentId, draggedNode, targetNode, expandedFolders, updateTree });
+
+      // 다른 모든 클라이언트에게 이벤트 전파
+      socket.broadcast.to(socket.currentProject).emit("itemMoved", {
+        itemId,
+        newParentId,
+        draggedNode,
+        targetNode,
+        isRoot: !newParentId,
+        updateTree
+      });
     });
 
     // 연결 해제

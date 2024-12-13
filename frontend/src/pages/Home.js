@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import '../styles/Home.css';
 import hoseo from '../img/호서.webp';
+import pic1 from '../img/pic1.png';
+import pic2 from '../img/pic2.jpg';
 
 const Home = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -43,7 +45,6 @@ const Home = () => {
   return (
     <div>
       <div className="home-container">
-        {/* 상단 텍스트와 이미지 */}
         <div className="home-header-with-image">
           <div className="home-header">
             <h1>아름다운 결<br />과물을 만들<br />어 내세요.</h1>
@@ -61,7 +62,7 @@ const Home = () => {
             )}
           </div>
           <div className="home-header-image">
-            {/* Sample Visual 이미지가 들어갈 공간 */}
+            <img src={pic2} alt='pic2' className='home-image1' />
           </div>
         </div>
 
@@ -72,10 +73,6 @@ const Home = () => {
               <img src={hoseo} alt='hoseoLogo' />
             </a>
           </div>
-        </div>
-
-        <div className="home-large-image-space">
-          {/* 큰 이미지를 추가할 수 있는 공간 */}
         </div>
 
         {/* 상단 텍스트 */}
@@ -92,7 +89,7 @@ const Home = () => {
 
         {/* 큰 이미지 섹션 */}
         <div className="home-large-image-space">
-          {/* 큰 이미지를 추가할 수 있는 공간 */}
+          <img src={pic1} alt='pic1' className='home-image2' />
         </div>
 
         {/* 상단 텍스트 */}

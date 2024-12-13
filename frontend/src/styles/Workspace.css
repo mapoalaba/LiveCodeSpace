@@ -11,6 +11,7 @@
   border-right: 1px solid #3c3c3c;
   display: flex;
   flex-direction: column;
+  overflow: hidden; /* 중요: 사이드바 내용이 넘치지 않도록 함 */
 }
 
 .sidebar-header {
@@ -53,6 +54,9 @@
   flex: 1;
   overflow-y: auto;
   padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* 중요: flex container 내에서 스크롤이 작동하도록 함 */
 }
 
 .tree-node-container {

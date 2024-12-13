@@ -47,6 +47,7 @@ const Workspace = () => {
   const [typingUsers, setTypingUsers] = useState([]);
   const typingTimeoutRef = useRef(null);
   const [currentEditors, setCurrentEditors] = useState([]); // 추가: 현재 편집 중인 사용자 목록
+  const [rootFolder, setRootFolder] = useState(null); // 최상위 폴더 상태 추가
 
   // 자동 저장 설정
   const AUTO_SAVE_INTERVAL = 30000; // 30초
@@ -172,40 +173,7 @@ const Workspace = () => {
       const newExpandedFolders = new Set(expandedFolders);
   
       if (!isExpanded) {
-        // 형제 폴더들을 닫는 함수
-        const closeSiblingFolders = (tree, targetFolder) => {
-          // 같은 parentId를 가진 다른 폴더들 찾아서 닫기
-          tree.forEach(item => {
-            if (item.type === 'folder' && item.parentId === targetFolder.parentId && item.id !== targetFolder.id) {
-              newExpandedFolders.delete(item.id);
-              // 닫히는 폴더의 모든 하위 폴더들도 닫기
-              if (item.children) {
-                closeAllSubFolders(item.children);
-              }
-            }
-            // 재귀적으로 하위 트리도 검사
-            if (item.type === 'folder' && item.children) {
-              closeSiblingFolders(item.children, targetFolder);
-            }
-          });
-        };
-  
-        // 모든 하위 폴더를 닫는 함수
-        const closeAllSubFolders = (children) => {
-          children.forEach(child => {
-            if (child.type === 'folder') {
-              newExpandedFolders.delete(child.id);
-              if (child.children) {
-                closeAllSubFolders(child.children);
-              }
-            }
-          });
-        };
-  
-        // 같은 레벨의 다른 폴더들 닫기
-        closeSiblingFolders(fileTree, folder);
-  
-        // 현재 폴더 열기
+        // 현재 폴더만 열기 (다른 폴더는 닫지 않음)
         newExpandedFolders.add(folder.id);
   
         const token = localStorage.getItem("token");
@@ -385,6 +353,7 @@ const Workspace = () => {
     fetchFileContent(file);
   };
 
+  // handleCreateFolder 함수 수정
   const handleCreateFolder = async () => {
     const folderName = prompt("새 폴더 이름을 입력하세요:");
     if (!folderName) return;
@@ -402,7 +371,7 @@ const Workspace = () => {
           body: JSON.stringify({
             name: folderName,
             type: "folder",
-            parentId: currentFolder || ""
+            parentId: currentFolder || ""  // 선택한 폴더 안에 생성
           }),
         }
       );
@@ -413,6 +382,11 @@ const Workspace = () => {
   
       const createdItem = await response.json();
       console.log("생성된 폴더:", createdItem);
+  
+      // 최상위 폴더 설정
+      if (!rootFolder) {
+        setRootFolder(createdItem);
+      }
   
       // fetchFileTree 대신 직접 상태 업데이트
       if (!currentFolder) {
@@ -441,7 +415,7 @@ const Workspace = () => {
           })
         );
       }
-
+  
       if (socket && createdItem) {
         socket.emit("folderCreate", { folder: createdItem });
       }
@@ -784,25 +758,102 @@ const Workspace = () => {
     e.currentTarget.classList.remove('drop-target');
   };
 
+  // 상위 폴더 관계를 찾는 함수 추가
+  const findAncestorPaths = (tree, nodePath, targetPath) => {
+    const folders = [];
+    const pathParts = nodePath.split('/');
+    const targetParts = targetPath.split('/');
+    
+    let currentPath = '';
+    for (const part of pathParts) {
+      currentPath += part + '/';
+      // 대상 폴더의 직계 자식으로 이동하는 경우, 대상 폴더는 닫지 않음
+      if (currentPath === targetPath) continue;
+      
+      // 대상 폴더의 상위 폴더인 경우도 닫지 않음
+      if (targetPath.startsWith(currentPath)) continue;
+      
+      const folder = tree.find(node => node.path === currentPath);
+      if (folder) {
+        folders.push(folder.id);
+      }
+    }
+    return folders;
+  };
+
   const handleDrop = async (e, targetNode) => {
     e.preventDefault();
     e.stopPropagation();
     setIsDraggingOver(false);
-
+  
     try {
       const draggedData = JSON.parse(e.dataTransfer.getData('text/plain'));
+      const draggedNode = findNodeById(fileTree, draggedData.id);
       
-      // 대상이 파일이거나 같은 노드면 이동 불가
-      if (targetNode.type !== 'folder' || draggedData.id === targetNode.id) {
+      if (!draggedNode || targetNode.type !== 'folder' || draggedData.id === targetNode.id) {
         return;
       }
-
-      // 순환 참조 방지
-      if (targetNode.path.startsWith(draggedData.path)) {
-        alert("폴더를 자신의 하위 폴더로 이동할 수 없습니다.");
+  
+      // 최상위 폴더 밖으로 드롭 불가
+      if (rootFolder && targetNode.id !== rootFolder.id && draggedNode.parentId === rootFolder.id) {
+        alert("최상위 폴더 밖으로는 드래그 앤 드롭이 불가능합니다.");
         return;
       }
-
+  
+      // 먼저 UI 업데이트
+      setFileTree(prevTree => {
+        const removeFromTree = (nodes) => {
+          return nodes.filter(n => {
+            if (n.id === draggedData.id) return false;
+            if (n.children) {
+              n.children = removeFromTree(n.children);
+            }
+            return true;
+          });
+        };
+  
+        const addToTarget = (nodes) => {
+          return nodes.map(n => {
+            if (n.id === targetNode.id) {
+              return {
+                ...n,
+                children: [...(n.children || []), { ...draggedNode, parentId: targetNode.id }]
+              };
+            }
+            if (n.children) {
+              return { ...n, children: addToTarget(n.children) };
+            }
+            return n;
+          });
+        };
+  
+        const newTree = removeFromTree([...prevTree]);
+        return addToTarget(newTree);
+      });
+  
+      // 상위 폴더들 중 닫아야 할 폴더만 닫기
+      const foldersToClose = findAncestorPaths(fileTree, draggedNode.path, targetNode.path);
+      setExpandedFolders(prev => {
+        const newExpanded = new Set(prev);
+        foldersToClose.forEach(folderId => newExpanded.delete(folderId));
+        // 대상 폴더는 항상 열린 상태 유지
+        newExpanded.add(targetNode.id);
+        return newExpanded;
+      });
+  
+      // Socket 이벤트 발생
+      if (socket) {
+        socket.emit("itemMove", {
+          itemId: draggedData.id,
+          newParentId: targetNode.id,
+          draggedNode,
+          targetNode,
+          expandedFolders: Array.from(expandedFolders), // 현재 열린 폴더 상태 전송
+          updateTree: true
+        });
+      }
+  
+      // 서버 요청
       const token = localStorage.getItem("token");
       const response = await fetch(
         `http://localhost:5001/api/filesystem/items/${draggedData.id}/move`,
@@ -817,39 +868,63 @@ const Workspace = () => {
           }),
         }
       );
-
+  
       if (!response.ok) {
-        const error = await response.json();
-        throw new Error(error.error || "Failed to move item");
+        throw new Error("Failed to move item");
       }
-
-      await fetchFileTree();
-
-      if (socket) {
-        sendWebSocketMessage('itemMove', { 
-          projectId, 
-          itemId: draggedData.id, 
-          newParentId: targetNode.id 
-        });
-      }
+  
     } catch (error) {
       console.error("Error moving item:", error);
-      alert(error.message);
+      // 실패 시 원래 상태로 복구
+      fetchFileTree();
     }
   };
 
+  // handleRootDrop 함수 수정
   const handleRootDrop = async (e) => {
     e.preventDefault();
     setIsDraggingOver(false);
   
-    // 드롭 영역 검증
     const dropTarget = e.target.closest('.file-tree');
     if (!dropTarget) return;
   
     try {
       const draggedData = JSON.parse(e.dataTransfer.getData('text/plain'));
+      const draggedNode = findNodeById(fileTree, draggedData.id);
+      if (!draggedNode) return;
+  
+      console.log("Dragged Node:", draggedNode);
+  
+      // UI 즉시 업데이트
+      setFileTree(prevTree => {
+        const removeFromTree = (nodes) => {
+          return nodes.filter(n => {
+            if (n.id === draggedData.id) return false;
+            if (n.children) {
+              n.children = removeFromTree(n.children);
+            }
+            return true;
+          });
+        };
+  
+        const newTree = removeFromTree([...prevTree]);
+        console.log("Updated Tree after removal:", newTree);
+        return [...newTree, { ...draggedNode, parentId: '' }];
+      });
+  
+      // Socket 이벤트 발생
+      if (socket) {
+        socket.emit("itemMove", {
+          itemId: draggedData.id,
+          newParentId: "",
+          draggedNode: { ...draggedNode, parentId: '' },
+          targetNode: null,
+          isRoot: true,
+          updateTree: true
+        });
+      }
+  
       const token = localStorage.getItem("token");
-      
       const response = await fetch(
         `http://localhost:5001/api/filesystem/items/${draggedData.id}/move`,
         {
@@ -859,21 +934,20 @@ const Workspace = () => {
             Authorization: `Bearer ${token}`,
           },
           body: JSON.stringify({
-            newParentId: ""  // 루트로 이동
+            newParentId: ""
           }),
         }
       );
   
       if (!response.ok) {
-        const error = await response.json();
-        throw error;
+        throw new Error("Failed to move item to root");
       }
   
-      // 트리 새로고침
-      await fetchFileTree();
+      console.log("Item moved to root successfully");
+  
     } catch (error) {
       console.error("루트로 이동 실패:", error);
-      alert(error.message || "아이템 이동에 실패했습니다.");
+      fetchFileTree();
     }
   };
 
@@ -1066,31 +1140,30 @@ const Workspace = () => {
           });
         });
   
+        // 폴더 생성 이벤트 처리 수정
         socket.on("folderCreated", ({ folder }) => {
           setFileTree(prevTree => {
-            const newTree = [...prevTree];
-            if (folder.parentId) {
-              // 특정 폴더 내 생성
-              return newTree.map(node => {
-                if (node.id === folder.parentId) {
-                  return {
-                    ...node,
-                    children: [...(node.children || []), folder]
-                  };
-                }
-                if (node.type === 'folder' && node.children) {
-                  return {
-                    ...node,
-                    children: updateTreeNode(node.children, folder.parentId, 
-                      [...(findNodeById(node.children, folder.parentId)?.children || []), folder])
-                  };
-                }
-                return node;
-              });
-            } else {
-              // 루트에 생성
-              return [...newTree, folder];
+            // 이미 존재하는지 확인
+            const exists = prevTree.some(item => item.id === folder.id);
+            if (exists) return prevTree;
+        
+            if (!folder.parentId) {
+              return [...prevTree, folder];
             }
+        
+            return prevTree.map(node => {
+              if (node.id === folder.parentId) {
+                // 중복 체크
+                const children = node.children || [];
+                const exists = children.some(item => item.id === folder.id);
+                if (exists) return node;
+                return {
+                  ...node,
+                  children: [...children, folder]
+                };
+              }
+              return node;
+            });
           });
         });
   
@@ -1125,6 +1198,49 @@ const Workspace = () => {
               });
             };
             return deleteNodeRecursive(prevTree);
+          });
+        });
+
+        // Socket.IO 이벤트 리스너 수정 (useEffect 내부)
+        socket.on("itemMoved", ({ itemId, newParentId, draggedNode, targetNode, isRoot }) => {
+          console.log("Item Moved Event Received:", { itemId, newParentId, draggedNode, targetNode, isRoot });
+          setFileTree(prevTree => {
+            const removeFromTree = (nodes) => {
+              return nodes.filter(n => {
+                if (n.id === itemId) return false;
+                if (n.children) {
+                  n.children = removeFromTree(n.children);
+                }
+                return true;
+              });
+            };
+        
+            if (isRoot) {
+              // 루트로 이동하는 경우
+              const newTree = removeFromTree([...prevTree]);
+              console.log("Updated Tree after removal for root move:", newTree);
+              return [...newTree, { ...draggedNode, parentId: '' }];
+            } else {
+              // 일반적인 이동의 경우
+              const addToTarget = (nodes) => {
+                return nodes.map(n => {
+                  if (n.id === newParentId) {
+                    return {
+                      ...n,
+                      children: [...(n.children || []), { ...draggedNode, parentId: newParentId }]
+                    };
+                  }
+                  if (n.children) {
+                    return { ...n, children: addToTarget(n.children) };
+                  }
+                  return n;
+                });
+              };
+        
+              const newTree = removeFromTree([...prevTree]);
+              console.log("Updated Tree after removal for normal move:", newTree);
+              return addToTarget(newTree);
+            }
           });
         });
 
@@ -1286,7 +1402,7 @@ const Workspace = () => {
                   {typingUsers.map((user, index) => (
                     <span key={index}>
                       {user} 타이핑 중
-                      {index < typingUsers.length - 1 ? ', ' : ''}
+                      {index < typingUsers.length > 1 ? ', ' : ''}
                     </span>
                   ))}
                 </div>
