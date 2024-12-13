@@ -29,7 +29,7 @@ const Workspace = () => {
   const { projectId } = useParams();
   const initPromiseRef = useRef(null);
   const socketInitializedRef = useRef(false); // 초기화 여부 추적을 위한 새로운 ref
-
+  const [currentTerminalPath, setCurrentTerminalPath] = useState(`/project/${projectId}`);
   const [fileTree, setFileTree] = useState([]);
   const [expandedFolders, setExpandedFolders] = useState(new Set());
   const [currentFolder, setCurrentFolder] = useState("");
@@ -69,33 +69,33 @@ const Workspace = () => {
             foreground: '#ffffff'
           }
         });
-  
+    
         const fitAddon = new FitAddon();
         term.loadAddon(fitAddon);
         term.loadAddon(new WebLinksAddon());
-  
+    
         term.open(terminalContainerRef.current);
         fitAddon.fit();
-  
+    
         terminalRef.current = term;
-        
+    
         // 초기 프롬프트 설정
-        const projectPath = `/project/${projectId}`;
-        setCurrentPath(projectPath);
-        term.write(`\r\n${projectPath} $ `);
-  
+        const initialPath = `/project/${projectId}`;
+        setCurrentTerminalPath(initialPath);
+        term.write(`\r\n${initialPath} $ `);
+    
         // 키 입력 처리
         let commandBuffer = '';
         term.onKey(({ key, domEvent }) => {
           const ev = domEvent;
           const printable = !ev.altKey && !ev.ctrlKey && !ev.metaKey;
-        
+    
           if (ev.keyCode === 13) { // Enter
-            term.write('\r\n');
-            if (commandBuffer.trim()) { // 명령어가 있을 때만 처리
-              handleCommand(commandBuffer.trim());
+            const trimmedCommand = commandBuffer.trim();
+            if (trimmedCommand) {
+              handleCommand(trimmedCommand);
             } else {
-              term.write(`${currentPath} $ `); // 빈 명령어는 새 프롬프트만 표시
+              term.write(`\r\n${currentTerminalPath} $ `);
             }
             commandBuffer = '';
           } else if (ev.keyCode === 8) { // Backspace
@@ -108,143 +108,106 @@ const Workspace = () => {
             term.write(key);
           }
         });
-  
-        // 창 크기 변경 시 터미널 크기 조정
+    
+        // 창 크기 변경 이벤트
         const handleResize = () => fitAddon.fit();
         window.addEventListener('resize', handleResize);
-  
+    
         return () => {
           window.removeEventListener('resize', handleResize);
           term.dispose();
         };
       }
-    }, [isTerminalVisible, projectId]);
+    }, [isTerminalVisible, projectId, currentTerminalPath]);
   
     // 명령어 처리 함수
     const handleCommand = (command) => {
       const term = terminalRef.current;
       if (!term) return;
     
-      // 명령어와 인자 분리
       const [cmd, ...args] = command.trim().split(' ');
-      
-      // 현재 경로의 상대 경로를 절대 경로로 변환
-      const getAbsolutePath = (relativePath) => {
-        if (relativePath.startsWith('/')) return relativePath;
-        return `${currentPath}/${relativePath}`.replace(/\/+/g, '/');
-      };
     
-      // 파일/폴더 찾기
-      const findItem = (path) => {
-        const normalizedPath = path.endsWith('/') ? path : `${path}/`;
-        return fileTree.find(item => item.path === normalizedPath || item.path === path);
+      const getCurrentItems = () => {
+        if (!currentFolder) {
+          return fileTree.filter(item => !item.parentId);
+        }
+        return fileTree.filter(item => item.parentId === currentFolder);
       };
     
       switch (cmd) {
         case 'pwd':
-          term.write(`\r\n${currentPath}`);
+          term.write(`\r\n${currentTerminalPath}`);
           break;
     
         case 'ls':
-          const targetPath = args[0] ? getAbsolutePath(args[0]) : currentPath;
-          const items = fileTree
-            .filter(item => item.parentId === currentFolder)
-            .sort((a, b) => {
-              // 폴더 먼저, 그 다음 파일
-              if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
-              return a.name.localeCompare(b.name);
-            });
-    
-          if (items.length === 0) {
-            term.write('\r\n');
-          } else {
+          const items = getCurrentItems();
+          if (items.length > 0) {
             const output = items.map(item => {
-              const color = item.type === 'folder' ? '\x1b[34m' : '\x1b[0m'; // 폴더는 파란색
-              const suffix = item.type === 'folder' ? '/' : '';
+              const isFolder = item.type === 'folder';
+              const color = isFolder ? '\x1b[34m' : '\x1b[0m'; // 폴더는 파란색
+              const suffix = isFolder ? '/' : '';
               return `${color}${item.name}${suffix}\x1b[0m`;
             }).join('  ');
             term.write(`\r\n${output}`);
+          } else {
+            term.write('\r\n');
           }
           break;
     
-        case 'cd':
-          if (!args[0]) {
-            // cd without args - go to project root
-            setCurrentPath(`/project/${projectId}`);
-            setCurrentFolder('');
-          } else {
-            const newPath = args[0] === '..' 
-              ? currentPath.split('/').slice(0, -1).join('/') || `/project/${projectId}`
-              : getAbsolutePath(args[0]);
-            const targetFolder = findItem(newPath);
-    
-            if (!targetFolder || targetFolder.type !== 'folder') {
-              term.write('\r\nNo such directory');
+          case 'cd':
+            if (!args[0]) {
+              // cd만 입력한 경우 프로젝트 루트로 이동
+              setCurrentTerminalPath(`/project/${projectId}`);
+              setCurrentFolder("");
+            } else if (args[0] === '..') {
+              // 상위 디렉토리로 이동
+              const pathParts = currentTerminalPath.split('/').filter(Boolean);
+              if (pathParts.length > 2) { // /project/projectId 아래로만 이동 가능
+                pathParts.pop();
+                const newPath = '/' + pathParts.join('/');
+                
+                // 상위 폴더의 ID 찾기
+                const currentFolderItem = fileTree.find(item => item.id === currentFolder);
+                const parentId = currentFolderItem ? currentFolderItem.parentId : '';
+                
+                setCurrentTerminalPath(newPath);
+                setCurrentFolder(parentId);
+              }
             } else {
-              setCurrentPath(newPath);
-              setCurrentFolder(targetFolder.id);
+              // 특정 디렉토리로 이동
+              const targetName = args[0];
+              const currentItems = fileTree.filter(item => item.parentId === currentFolder);
+              const targetFolder = currentItems.find(
+                item => item.type === 'folder' && item.name === targetName
+              );
+          
+              if (targetFolder) {
+                setCurrentTerminalPath(`${currentTerminalPath}/${targetName}`.replace(/\/+/g, '/'));
+                setCurrentFolder(targetFolder.id);
+              } else {
+                term.write('\r\nNo such directory');
+              }
             }
-          }
-          break;
-    
-        case 'mkdir':
-          if (!args[0]) {
-            term.write('\r\nUsage: mkdir <directory_name>');
-          } else {
-            const folderName = args[0];
-            handleCreateFolder(folderName).then(() => {
-              term.write(`\r\nCreated directory: ${folderName}`);
-            }).catch(err => {
-              term.write(`\r\nFailed to create directory: ${err.message}`);
-            });
-          }
-          break;
-    
-        case 'rm':
-          if (!args[0]) {
-            term.write('\r\nUsage: rm [-r] <file_or_directory>');
-          } else {
-            const isRecursive = args[0] === '-r';
-            const target = isRecursive ? args[1] : args[0];
-            if (!target) {
-              term.write('\r\nNo target specified');
-              break;
-            }
-    
-            const targetItem = findItem(getAbsolutePath(target));
-            if (!targetItem) {
-              term.write('\r\nNo such file or directory');
-              break;
-            }
-    
-            if (targetItem.type === 'folder' && !isRecursive) {
-              term.write('\r\nCannot remove directory without -r flag');
-              break;
-            }
-    
-            handleDelete(targetItem).then(() => {
-              term.write(`\r\nRemoved: ${target}`);
-            }).catch(err => {
-              term.write(`\r\nFailed to remove: ${err.message}`);
-            });
-          }
-          break;
+            break;
     
         case 'cat':
           if (!args[0]) {
-            term.write('\r\nUsage: cat <file>');
+            term.write('\r\nUsage: cat <filename>');
           } else {
-            const filePath = getAbsolutePath(args[0]);
-            const file = findItem(filePath);
-            
-            if (!file || file.type !== 'file') {
-              term.write('\r\nNo such file');
-            } else {
-              fetchFileContent(file).then(() => {
+            const fileName = args[0];
+            const items = getCurrentItems();
+            const targetFile = items.find(item => 
+              item.type === 'file' && item.name === fileName
+            );
+    
+            if (targetFile) {
+              fetchFileContent(targetFile).then(() => {
                 term.write(`\r\n${fileContent}`);
               }).catch(err => {
                 term.write(`\r\nError reading file: ${err.message}`);
               });
+            } else {
+              term.write('\r\nNo such file');
             }
           }
           break;
@@ -257,9 +220,7 @@ const Workspace = () => {
           term.write('\r\nAvailable commands:\r\n');
           term.write('  pwd      Print working directory\r\n');
           term.write('  ls       List directory contents\r\n');
-          term.write('  cd       Change directory\r\n');
-          term.write('  mkdir    Create a new directory\r\n');
-          term.write('  rm       Remove files or directories (use -r for directories)\r\n');
+          term.write('  cd       Change directory (cd .. to go up)\r\n');
           term.write('  cat      Display file contents\r\n');
           term.write('  clear    Clear terminal screen\r\n');
           term.write('  help     Show this help message\r\n');
@@ -271,9 +232,9 @@ const Workspace = () => {
           }
       }
     
-      // 새로운 프롬프트 표시
-      term.write(`\r\n${currentPath} $ `);
+      term.write(`\r\n${currentTerminalPath} $ `);
     };
+    
   
     // 터미널 토글 버튼 추가
     const toggleTerminal = () => {

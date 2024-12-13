@@ -1,10 +1,11 @@
 import React, { useEffect, useState } from 'react';
 import '../styles/Home.css';
 import hoseo from '../img/호서.webp';
-import pic1 from '../img/pic1.png';
+import pic1 from '../img/pic1-1.avif';
 import pic2 from '../img/pic2.jpg';
-import pic3 from '../img/pic3.avif';
+import pic3 from '../img//pic3.avif';
 import pic4 from '../img/pic4.avif';
+import pic5 from '../img/pic5.jpg';
 
 const Home = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
@@ -108,7 +109,7 @@ const Home = () => {
 
         {/* 큰 이미지 섹션 */}
         <div className="home-large-image-space">
-          {/* 큰 이미지를 추가할 수 있는 공간 */}
+          <img src={pic3} alt='pic3' className='home-image3' />
         </div>
 
         {/* 상단 텍스트 */}
@@ -125,7 +126,7 @@ const Home = () => {
 
         {/* 큰 이미지 섹션 */}
         <div className="home-large-image-space">
-          {/* 큰 이미지를 추가할 수 있는 공간 */}
+          <img src={pic4} alt='pic4' className='home-image4' />
         </div>
 
         {/* 상단 텍스트 */}
@@ -142,7 +143,7 @@ const Home = () => {
 
         {/* 큰 이미지 섹션 */}
         <div className="home-large-image-space">
-          {/* 큰 이미지를 추가할 수 있는 공간 */}
+        <img src={pic5} alt='pic5' className='home-image5' />
         </div>
 
         <div className='home-footer'>
