@@ -2,6 +2,10 @@ import React, { useState, useEffect, useCallback, useRef } from "react";
 import { useParams } from "react-router-dom";
 import { Editor } from "@monaco-editor/react";
 import { Icon } from '@mdi/react';
+import { Terminal } from 'xterm';
+import { FitAddon } from 'xterm-addon-fit';
+import { WebLinksAddon } from 'xterm-addon-web-links';
+import 'xterm/css/xterm.css';
 import { 
   mdiLanguageJavascript,
   mdiReact,
@@ -48,6 +52,233 @@ const Workspace = () => {
   const typingTimeoutRef = useRef(null);
   const [currentEditors, setCurrentEditors] = useState([]); // 추가: 현재 편집 중인 사용자 목록
   const [rootFolder, setRootFolder] = useState(null); // 최상위 폴더 상태 추가
+  const [isTerminalVisible, setIsTerminalVisible] = useState(false);
+  const terminalRef = useRef(null);
+  const terminalContainerRef = useRef(null);
+  const [currentPath, setCurrentPath] = useState('');
+
+    // 터미널 초기화
+    useEffect(() => {
+      if (isTerminalVisible && terminalContainerRef.current && !terminalRef.current) {
+        const term = new Terminal({
+          cursorBlink: true,
+          fontSize: 14,
+          fontFamily: 'Menlo, Monaco, "Courier New", monospace',
+          theme: {
+            background: '#1e1e1e',
+            foreground: '#ffffff'
+          }
+        });
+  
+        const fitAddon = new FitAddon();
+        term.loadAddon(fitAddon);
+        term.loadAddon(new WebLinksAddon());
+  
+        term.open(terminalContainerRef.current);
+        fitAddon.fit();
+  
+        terminalRef.current = term;
+        
+        // 초기 프롬프트 설정
+        const projectPath = `/project/${projectId}`;
+        setCurrentPath(projectPath);
+        term.write(`\r\n${projectPath} $ `);
+  
+        // 키 입력 처리
+        let commandBuffer = '';
+        term.onKey(({ key, domEvent }) => {
+          const ev = domEvent;
+          const printable = !ev.altKey && !ev.ctrlKey && !ev.metaKey;
+        
+          if (ev.keyCode === 13) { // Enter
+            term.write('\r\n');
+            if (commandBuffer.trim()) { // 명령어가 있을 때만 처리
+              handleCommand(commandBuffer.trim());
+            } else {
+              term.write(`${currentPath} $ `); // 빈 명령어는 새 프롬프트만 표시
+            }
+            commandBuffer = '';
+          } else if (ev.keyCode === 8) { // Backspace
+            if (commandBuffer.length > 0) {
+              commandBuffer = commandBuffer.slice(0, -1);
+              term.write('\b \b');
+            }
+          } else if (printable) {
+            commandBuffer += key;
+            term.write(key);
+          }
+        });
+  
+        // 창 크기 변경 시 터미널 크기 조정
+        const handleResize = () => fitAddon.fit();
+        window.addEventListener('resize', handleResize);
+  
+        return () => {
+          window.removeEventListener('resize', handleResize);
+          term.dispose();
+        };
+      }
+    }, [isTerminalVisible, projectId]);
+  
+    // 명령어 처리 함수
+    const handleCommand = (command) => {
+      const term = terminalRef.current;
+      if (!term) return;
+    
+      // 명령어와 인자 분리
+      const [cmd, ...args] = command.trim().split(' ');
+      
+      // 현재 경로의 상대 경로를 절대 경로로 변환
+      const getAbsolutePath = (relativePath) => {
+        if (relativePath.startsWith('/')) return relativePath;
+        return `${currentPath}/${relativePath}`.replace(/\/+/g, '/');
+      };
+    
+      // 파일/폴더 찾기
+      const findItem = (path) => {
+        const normalizedPath = path.endsWith('/') ? path : `${path}/`;
+        return fileTree.find(item => item.path === normalizedPath || item.path === path);
+      };
+    
+      switch (cmd) {
+        case 'pwd':
+          term.write(`\r\n${currentPath}`);
+          break;
+    
+        case 'ls':
+          const targetPath = args[0] ? getAbsolutePath(args[0]) : currentPath;
+          const items = fileTree
+            .filter(item => item.parentId === currentFolder)
+            .sort((a, b) => {
+              // 폴더 먼저, 그 다음 파일
+              if (a.type !== b.type) return a.type === 'folder' ? -1 : 1;
+              return a.name.localeCompare(b.name);
+            });
+    
+          if (items.length === 0) {
+            term.write('\r\n');
+          } else {
+            const output = items.map(item => {
+              const color = item.type === 'folder' ? '\x1b[34m' : '\x1b[0m'; // 폴더는 파란색
+              const suffix = item.type === 'folder' ? '/' : '';
+              return `${color}${item.name}${suffix}\x1b[0m`;
+            }).join('  ');
+            term.write(`\r\n${output}`);
+          }
+          break;
+    
+        case 'cd':
+          if (!args[0]) {
+            // cd without args - go to project root
+            setCurrentPath(`/project/${projectId}`);
+            setCurrentFolder('');
+          } else {
+            const newPath = args[0] === '..' 
+              ? currentPath.split('/').slice(0, -1).join('/') || `/project/${projectId}`
+              : getAbsolutePath(args[0]);
+            const targetFolder = findItem(newPath);
+    
+            if (!targetFolder || targetFolder.type !== 'folder') {
+              term.write('\r\nNo such directory');
+            } else {
+              setCurrentPath(newPath);
+              setCurrentFolder(targetFolder.id);
+            }
+          }
+          break;
+    
+        case 'mkdir':
+          if (!args[0]) {
+            term.write('\r\nUsage: mkdir <directory_name>');
+          } else {
+            const folderName = args[0];
+            handleCreateFolder(folderName).then(() => {
+              term.write(`\r\nCreated directory: ${folderName}`);
+            }).catch(err => {
+              term.write(`\r\nFailed to create directory: ${err.message}`);
+            });
+          }
+          break;
+    
+        case 'rm':
+          if (!args[0]) {
+            term.write('\r\nUsage: rm [-r] <file_or_directory>');
+          } else {
+            const isRecursive = args[0] === '-r';
+            const target = isRecursive ? args[1] : args[0];
+            if (!target) {
+              term.write('\r\nNo target specified');
+              break;
+            }
+    
+            const targetItem = findItem(getAbsolutePath(target));
+            if (!targetItem) {
+              term.write('\r\nNo such file or directory');
+              break;
+            }
+    
+            if (targetItem.type === 'folder' && !isRecursive) {
+              term.write('\r\nCannot remove directory without -r flag');
+              break;
+            }
+    
+            handleDelete(targetItem).then(() => {
+              term.write(`\r\nRemoved: ${target}`);
+            }).catch(err => {
+              term.write(`\r\nFailed to remove: ${err.message}`);
+            });
+          }
+          break;
+    
+        case 'cat':
+          if (!args[0]) {
+            term.write('\r\nUsage: cat <file>');
+          } else {
+            const filePath = getAbsolutePath(args[0]);
+            const file = findItem(filePath);
+            
+            if (!file || file.type !== 'file') {
+              term.write('\r\nNo such file');
+            } else {
+              fetchFileContent(file).then(() => {
+                term.write(`\r\n${fileContent}`);
+              }).catch(err => {
+                term.write(`\r\nError reading file: ${err.message}`);
+              });
+            }
+          }
+          break;
+    
+        case 'clear':
+          term.clear();
+          break;
+    
+        case 'help':
+          term.write('\r\nAvailable commands:\r\n');
+          term.write('  pwd      Print working directory\r\n');
+          term.write('  ls       List directory contents\r\n');
+          term.write('  cd       Change directory\r\n');
+          term.write('  mkdir    Create a new directory\r\n');
+          term.write('  rm       Remove files or directories (use -r for directories)\r\n');
+          term.write('  cat      Display file contents\r\n');
+          term.write('  clear    Clear terminal screen\r\n');
+          term.write('  help     Show this help message\r\n');
+          break;
+    
+        default:
+          if (command) {
+            term.write(`\r\nCommand not found: ${cmd}`);
+          }
+      }
+    
+      // 새로운 프롬프트 표시
+      term.write(`\r\n${currentPath} $ `);
+    };
+  
+    // 터미널 토글 버튼 추가
+    const toggleTerminal = () => {
+      setIsTerminalVisible(!isTerminalVisible);
+    };
 
   // 자동 저장 설정
   const AUTO_SAVE_INTERVAL = 30000; // 30초
@@ -1272,7 +1503,7 @@ const Workspace = () => {
     <div className="workspace">
       <div className="sidebar">
         <div className="sidebar-header">
-        🟢 활성 사용자: {activeUsers}명
+          🟢 활성 사용자: {activeUsers}명
           <div className="search-box">
             <input
               type="text"
@@ -1348,17 +1579,24 @@ const Workspace = () => {
               </span>
             )}
           </div>
-          {currentFile && (
-            <div className="editor-actions">
-              {fileHistory.length > 0 && (
-                <button
-                  onClick={revertToLastVersion}
-                  className="revert-button"
-                  title="이전 버전으로 되돌리기"
-                >
-                  ↩️
-                </button>
-              )}
+          <div className="editor-actions">
+            {fileHistory.length > 0 && (
+              <button
+                onClick={revertToLastVersion}
+                className="revert-button"
+                title="이전 버전으로 되돌리기"
+              >
+                ↩️
+              </button>
+            )}
+            <button 
+              className="terminal-toggle"
+              onClick={toggleTerminal}
+              title="터미널 토글"
+            >
+              <Icon path={mdiConsole} size={1} />
+            </button>
+            {currentFile && (
               <button
                 onClick={() => saveFileContent(false)}
                 className={`save-button ${hasUnsavedChanges ? 'unsaved' : ''}`}
@@ -1366,16 +1604,17 @@ const Workspace = () => {
               >
                 💾 저장
               </button>
-            </div>
-          )}
+            )}
+          </div>
         </div>
-        {loading ? (
-          <div className="loading">Loading...</div>
-        ) : (
-          <>
-            <div className="editor-content">
+        
+        <div className="editor-content" style={{ height: isTerminalVisible ? '70%' : '100%' }}>
+          {loading ? (
+            <div className="loading">Loading...</div>
+          ) : (
+            <>
               <Editor
-                height="calc(100vh - 40px)"
+                height="100%"
                 defaultLanguage="javascript"
                 value={fileContent}
                 theme="vs-dark"
@@ -1407,10 +1646,18 @@ const Workspace = () => {
                   ))}
                 </div>
               )}
-            </div>
-          </>
+            </>
+          )}
+        </div>
+        
+        {isTerminalVisible && (
+          <div 
+            className="terminal-container" 
+            ref={terminalContainerRef}
+          />
         )}
       </div>
+
       {contextMenu && (
         <ContextMenu
           {...contextMenu}
@@ -1418,7 +1665,7 @@ const Workspace = () => {
         />
       )}
     </div>
-  );
+);
 };
 
 export default Workspace;

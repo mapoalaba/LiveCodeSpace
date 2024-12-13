@@ -243,3 +243,149 @@
   color: #00ff00;
   margin: 0 4px;
 }
+
+/* 터미널 컨테이너 기본 스타일 */
+.editor-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  transition: height 0.2s ease;
+}
+
+.terminal-container {
+  height: 30%;
+  min-height: 100px;
+  background-color: #1e1e1e;
+  border-top: 1px solid #3c3c3c;
+  padding: 8px;
+}
+
+/* 터미널 드래그 핸들 */
+.terminal-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  cursor: row-resize;
+  background-color: #3c3c3c;
+}
+
+/* 터미널 헤더 */
+.terminal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  background-color: #252526;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+/* 터미널 토글 버튼 */
+.terminal-toggle {
+  background: none;
+  border: none;
+  color: #cccccc;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+}
+
+.terminal-toggle:hover {
+  background-color: #3c3c3c;
+}
+
+/* 터미널 내부 xterm.js 스타일링 */
+.xterm {
+  padding: 4px;
+  height: calc(100% - 30px);
+}
+
+.xterm-viewport {
+  background-color: #1e1e1e !important;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3c3c3c #1e1e1e;
+}
+
+/* 스크롤바 스타일링 */
+.xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+
+.xterm-viewport::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: #3c3c3c;
+  border-radius: 5px;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* 터미널 크기 조절 영역 */
+.terminal-resize-handle {
+  height: 4px;
+  background-color: #3c3c3c;
+  cursor: row-resize;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+/* 터미널 활성/비활성 상태 */
+.terminal-container.active {
+  border-color: #0e639c;
+}
+
+/* 터미널 전환 애니메이션 */
+.terminal-container {
+  transition: height 0.2s ease;
+}
+
+/* 터미널 텍스트 스타일 */
+.xterm-text-layer {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+/* 터미널 커서 스타일 */
+.xterm-cursor {
+  background-color: #fff;
+  border-color: #fff;
+}
+
+/* 터미널 선택 영역 스타일 */
+.xterm-selection {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* 터미널 툴바 */
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+/* 터미널 액션 버튼 */
+.terminal-action-button {
+  background: none;
+  border: none;
+  color: #cccccc;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 2px;
+}
+
+.terminal-action-button:hover {
+  background-color: #3c3c3c;
+}
