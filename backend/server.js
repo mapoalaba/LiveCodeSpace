@@ -1,26 +1,92 @@
+require("dotenv").config(); // 환경 변수 설정
 const express = require("express");
+const cors = require("cors");
+const http = require("http");
+const { Server } = require("socket.io");
 const bodyParser = require("body-parser");
-require("dotenv").config();
-const WebSocket = require("ws");
-const wss = new WebSocket.Server({ port: 8080 });
+const authRoutes = require("./routes/authRoutes");
+const projectRoutes = require("./routes/projectRoutes");
+const fileSystemRouter = require('./routes/fileSystem');
 
-wss.on("connection", (ws) => {
-  ws.on("message", (message) => {
-    // 실시간 데이터 브로드캐스트
-    wss.clients.forEach((client) => {
-      if (client !== ws && client.readyState === WebSocket.OPEN) {
-        client.send(message);
-      }
-    });
+const app = express();
+const server = http.createServer(app);
+
+const socketServer = require('./socket/socketServer');
+const io = new Server(server, {
+  cors: {
+    origin: "http://localhost:3000",
+    methods: ["GET", "POST", "OPTIONS"],
+    credentials: true,
+    allowedHeaders: ["Content-Type", "Authorization"]
+  },
+  path: "/socket",  // 소켓 경로 지정
+  transports: ['websocket', 'polling'],  // 전송 방식 명시
+  pingTimeout: 60000,  // 핑 타임아웃 증가
+  pingInterval: 25000,
+  allowEIO3: true     // Engine.IO 3 허용
+});
+
+socketServer(io);  // Socket.IO 서버 초기화
+
+// ===== 미들웨어 설정 =====
+app.use(cors()); // CORS 활성화
+app.use(bodyParser.json()); // JSON 요청 파싱
+app.use(bodyParser.urlencoded({ extended: true })); // URL-encoded 요청 파싱
+
+// 요청 로깅
+app.use((req, res, next) => {
+  console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+  next();
+});
+
+// ===== 기본 라우트 =====
+app.get("/", (req, res) => {
+  res.send("LiveCodeSpace Backend API is running.");
+});
+
+// ===== 라우트 등록 =====
+app.use("/api/auth", authRoutes);
+app.use("/api/projects", projectRoutes);
+app.use('/api/filesystem', fileSystemRouter);
+
+// ===== Socket.IO 이벤트 처리 =====
+io.on("connection", (socket) => {
+  console.log(`[Socket.IO] User connected: ${socket.id}`);
+
+  // 프로젝트 방에 참여
+  socket.on("joinProject", (projectId) => {
+    socket.join(projectId);
+    console.log(`[Socket.IO] User ${socket.id} joined project room: ${projectId}`);
+  });
+
+  // 코드 변경 이벤트 처리
+  socket.on("codeChange", ({ projectId, code }) => {
+    console.log(`[Socket.IO] Code update for project ${projectId}:`, code);
+    // 프로젝트 방에 있는 다른 사용자들에게 코드 업데이트 브로드캐스트
+    socket.broadcast.to(projectId).emit("codeUpdate", { code });
+  });
+
+  // 연결 해제 처리
+  socket.on("disconnect", () => {
+    console.log(`[Socket.IO] User disconnected: ${socket.id}`);
   });
 });
 
-const app = express();
-app.use(bodyParser.json());
-
-app.get("/", (req, res) => {
-  res.send("Backend is running on Mac!");
+// ===== 에러 핸들링 =====
+// 404 핸들러
+app.use((req, res, next) => {
+  console.warn(`[404] Route not found: ${req.method} ${req.path}`);
+  res.status(404).json({ error: "Not Found" });
 });
 
+// 일반 에러 핸들러
+app.use((err, req, res, next) => {
+  console.error(`[500] Unhandled error: ${err.message}`);
+  res.status(500).json({ error: "An unexpected error occurred." });
+});
+
+// ===== 서버 시작 =====
 const PORT = process.env.PORT || 5001;
-app.listen(PORT, () => console.log(`Server running on port ${PORT}`));
+server.listen(PORT, "0.0.0.0", () => {
+  console.log(`[Server] Running on port ${PORT}`);
+});

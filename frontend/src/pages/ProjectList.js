@@ -1,1 +1,24 @@
-// 사용자가 프로젝트를 생성하고, 기존 프로젝트 목록을 볼 수 있는 화면
+import React from "react";
+import { useNavigate } from "react-router-dom";
+
+const ProjectList = ({ projects }) => {
+  const navigate = useNavigate();
+
+  return (
+    <div className="project-list">
+      <h2>Your Projects</h2>
+      <ul>
+        {projects.map((project) => (
+          <li
+            key={project.id}
+            onClick={() => navigate(`/workspace/${project.id}`)}
+          >
+            {project.name}
+          </li>
+        ))}
+      </ul>
+    </div>
+  );
+};
+
+export default ProjectList;

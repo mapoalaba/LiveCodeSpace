@@ -1,0 +1,391 @@
+.workspace {
+  display: flex;
+  height: 100vh;
+  background-color: #1e1e1e;
+}
+
+.sidebar {
+  width: 450px;
+  background-color: #252526;
+  color: #cccccc;
+  border-right: 1px solid #3c3c3c;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden; /* 중요: 사이드바 내용이 넘치지 않도록 함 */
+}
+
+.sidebar-header {
+  padding: 10px;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.search-box {
+  margin-bottom: 10px;
+}
+
+.search-input {
+  width: 100%;
+  padding: 4px 8px;
+  background-color: #3c3c3c;
+  border: none;
+  color: #cccccc;
+  border-radius: 2px;
+}
+
+.button-group {
+  display: flex;
+  gap: 8px;
+}
+
+.button-group button {
+  padding: 4px 8px;
+  background-color: #0e639c;
+  color: white;
+  border: none;
+  border-radius: 2px;
+  cursor: pointer;
+}
+
+.button-group button:hover {
+  background-color: #1177bb;
+}
+
+.file-tree {
+  flex: 1;
+  overflow-y: auto;
+  padding: 8px 0;
+  display: flex;
+  flex-direction: column;
+  min-height: 0; /* 중요: flex container 내에서 스크롤이 작동하도록 함 */
+}
+
+.tree-node-container {
+  display: flex;
+  align-items: center;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.tree-node-container:hover {
+  background-color: #2a2d2e;
+}
+
+.tree-node {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.tree-node .icon {
+  font-size: 16px;
+}
+
+.tree-node .name {
+  font-size: 13px;
+}
+
+.tree-node-actions {
+  display: none;
+  gap: 4px;
+}
+
+.tree-node-container:hover .tree-node-actions {
+  display: flex;
+}
+
+.action-button {
+  background: none;
+  border: none;
+  color: #cccccc;
+  cursor: pointer;
+  padding: 2px;
+  font-size: 12px;
+}
+
+.action-button:hover {
+  background-color: #3c3c3c;
+  border-radius: 2px;
+}
+
+.editor {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.editor-header {
+  display: flex;
+  align-items: center;
+  padding: 8px;
+  background-color: #252526;
+  color: #cccccc;
+  gap: 16px;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.dragover {
+  background-color: #2a2d2e;
+}
+
+/* 에디터 */
+
+.editor-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0 12px;
+  height: 35px;
+  background-color: #252526;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+.file-info {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.breadcrumb {
+  color: #cccccc;
+  font-size: 13px;
+}
+
+.save-button {
+  background: none;
+  border: none;
+  color: #cccccc;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 2px;
+}
+
+.save-button:hover {
+  background-color: #3c3c3c;
+}
+
+.dragging {
+  opacity: 0.5;
+  border: 2px dashed #007bff;
+}
+
+.drop-target {
+  background-color: rgba(0, 123, 255, 0.1);
+  border: 2px dashed #007bff;
+}
+
+.folder-arrow {
+  font-size: 10px;
+  width: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #cccccc;
+}
+
+.tree-node {
+  display: flex;
+  align-items: center;
+  height: 22px;
+  padding: 0 8px;
+}
+
+.tree-node .icon {
+  margin-right: 6px;
+  font-size: 16px;
+  width: 16px;
+  text-align: center;
+}
+
+.tree-node.folder.expanded .folder-arrow {
+  transform: rotate(0deg);
+}
+
+.tree-node.folder:not(.expanded) .folder-arrow {
+  transform: rotate(-90deg);
+}
+
+/* 타이핑 인디케이터 스타일 수정 */
+.typing-indicator {
+  position: absolute;
+  bottom: 50px;  /* 위치 조정 */
+  left: 20px;
+  background-color: rgba(0, 0, 0, 0.7);
+  color: #00ff00;  /* 텍스트 색상을 녹색으로 변경 */
+  padding: 5px 10px;
+  border-radius: 4px;
+  font-size: 13px;
+  z-index: 1000;
+  max-width: 80%;  /* 최대 너비 설정 */
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.typing-indicator span {
+  margin-right: 8px;
+}
+
+.current-editors {
+  flex: 1;
+  text-align: center;
+  color: #cccccc;
+  font-size: 13px;
+}
+
+.editors-list {
+  background-color: rgba(60, 60, 60, 0.6);
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+
+.editor-name {
+  color: #00ff00;
+  margin: 0 4px;
+}
+
+/* 터미널 컨테이너 기본 스타일 */
+.editor-content {
+  flex: 1;
+  position: relative;
+  overflow: hidden;
+  transition: height 0.2s ease;
+}
+
+.terminal-container {
+  height: 30%;
+  min-height: 100px;
+  background-color: #1e1e1e;
+  border-top: 1px solid #3c3c3c;
+  padding: 8px;
+}
+
+/* 터미널 드래그 핸들 */
+.terminal-container::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 4px;
+  cursor: row-resize;
+  background-color: #3c3c3c;
+}
+
+/* 터미널 헤더 */
+.terminal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 8px;
+  background-color: #252526;
+  border-bottom: 1px solid #3c3c3c;
+}
+
+/* 터미널 토글 버튼 */
+.terminal-toggle {
+  background: none;
+  border: none;
+  color: #cccccc;
+  cursor: pointer;
+  padding: 4px 8px;
+  border-radius: 2px;
+  display: flex;
+  align-items: center;
+}
+
+.terminal-toggle:hover {
+  background-color: #3c3c3c;
+}
+
+/* 터미널 내부 xterm.js 스타일링 */
+.xterm {
+  padding: 4px;
+  height: calc(100% - 30px);
+}
+
+.xterm-viewport {
+  background-color: #1e1e1e !important;
+  overflow-y: auto;
+  scrollbar-width: thin;
+  scrollbar-color: #3c3c3c #1e1e1e;
+}
+
+/* 스크롤바 스타일링 */
+.xterm-viewport::-webkit-scrollbar {
+  width: 10px;
+}
+
+.xterm-viewport::-webkit-scrollbar-track {
+  background: #1e1e1e;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb {
+  background: #3c3c3c;
+  border-radius: 5px;
+}
+
+.xterm-viewport::-webkit-scrollbar-thumb:hover {
+  background: #555;
+}
+
+/* 터미널 크기 조절 영역 */
+.terminal-resize-handle {
+  height: 4px;
+  background-color: #3c3c3c;
+  cursor: row-resize;
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+}
+
+/* 터미널 활성/비활성 상태 */
+.terminal-container.active {
+  border-color: #0e639c;
+}
+
+/* 터미널 전환 애니메이션 */
+.terminal-container {
+  transition: height 0.2s ease;
+}
+
+/* 터미널 텍스트 스타일 */
+.xterm-text-layer {
+  font-family: 'Menlo', 'Monaco', 'Courier New', monospace;
+  font-size: 14px;
+  line-height: 1.2;
+}
+
+/* 터미널 커서 스타일 */
+.xterm-cursor {
+  background-color: #fff;
+  border-color: #fff;
+}
+
+/* 터미널 선택 영역 스타일 */
+.xterm-selection {
+  background-color: rgba(255, 255, 255, 0.3);
+}
+
+/* 터미널 툴바 */
+.terminal-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 0 8px;
+}
+
+/* 터미널 액션 버튼 */
+.terminal-action-button {
+  background: none;
+  border: none;
+  color: #cccccc;
+  cursor: pointer;
+  padding: 2px;
+  border-radius: 2px;
+}
+
+.terminal-action-button:hover {
+  background-color: #3c3c3c;
+}
