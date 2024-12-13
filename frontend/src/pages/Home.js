@@ -3,6 +3,8 @@ import '../styles/Home.css';
 import hoseo from '../img/호서.webp';
 import pic1 from '../img/pic1.png';
 import pic2 from '../img/pic2.jpg';
+import pic3 from '../img/pic3.avif';
+import pic4 from '../img/pic4.avif';
 
 const Home = () => {
   const [isLoggedIn, setIsLoggedIn] = useState(false);
